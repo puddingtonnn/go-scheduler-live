@@ -1,5 +1,6 @@
 import { fetchScenarios, fetchRun, type RunParams } from './api'
 import type { Timeline } from './model/timeline'
+import { narrate } from './player/narrate'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
 import { Controls } from './controls'
@@ -20,7 +21,7 @@ async function boot(): Promise<void> {
   let player: Player | null = null
   let timeline: Timeline | null = null
 
-  const controls = new Controls(root, scenarios, (p) => void run(p))
+  const controls = new Controls(root, scenarios, (p) => void run(p), () => scene?.toggleIds() ?? false)
   root.append(stage)
 
   // Expose the current player/scene/timeline for the screenshot harness and debugging.
@@ -49,6 +50,7 @@ async function boot(): Promise<void> {
       const p = new Player(tl)
       p.onTick = (w) => {
         sc.setWorld(w)
+        sc.setCaption(narrate(tl.events, p.t))
         controls.sync()
       }
       player = p

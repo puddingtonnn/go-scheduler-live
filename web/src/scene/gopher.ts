@@ -1,13 +1,15 @@
-import { Container, Graphics } from 'pixi.js'
+import { Container, Graphics, Text } from 'pixi.js'
 
-// Gopher is a placeholder sprite: a colored body + eyes, plus a steal "flash"
-// ring whose intensity is driven externally (0..1). It sits behind this factory
-// so real pixel-art sprites can replace it later without touching the scene.
+// Gopher is a placeholder sprite: a colored body + eyes, a steal "flash" ring,
+// and an optional id label. It sits behind this factory so real pixel-art
+// sprites can replace it later without touching the scene.
 export interface Gopher {
   container: Container
   setColor(color: number): void
   /** steal-flash intensity, 0 (hidden) .. 1 (full). */
   setPulse(p: number): void
+  setLabel(text: string): void
+  showLabel(v: boolean): void
 }
 
 const BODY_RX = 12
@@ -34,7 +36,12 @@ export function makeGopher(): Gopher {
     .circle(4, -4, 1.3)
     .fill(OUTLINE)
 
-  container.addChild(ring, body, eyes)
+  const label = new Text({ text: '', style: { fill: 0xe2e8f0, fontSize: 9, fontFamily: 'monospace' } })
+  label.anchor.set(0.5, 1)
+  label.y = -BODY_RY - 3
+  label.visible = false
+
+  container.addChild(ring, body, eyes, label)
 
   let lastColor = -1
   const setColor = (color: number): void => {
@@ -44,10 +51,17 @@ export function makeGopher(): Gopher {
     lastColor = color
   }
 
-  const setPulse = (p: number): void => {
-    ring.alpha = p
+  return {
+    container,
+    setColor,
+    setPulse: (p: number) => {
+      ring.alpha = p
+    },
+    setLabel: (text: string) => {
+      label.text = text
+    },
+    showLabel: (v: boolean) => {
+      label.visible = v
+    },
   }
-
-  setColor(0xfbbf24)
-  return { container, setColor, setPulse }
 }

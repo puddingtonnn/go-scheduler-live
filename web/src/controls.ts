@@ -24,12 +24,16 @@ export class Controls {
     container: HTMLElement,
     private readonly scenarios: ScenarioInfo[],
     private readonly onRun: (p: RunParams) => void,
+    private readonly onToggleIds?: () => boolean,
   ) {
     const bar = document.createElement('div')
     bar.className = 'controls'
 
     this.playBtn = button('Играть', () => this.player?.toggle())
     const stepBtn = button('Шаг', () => this.player?.step())
+
+    const idBtn = button('id', () => idBtn.classList.toggle('active', this.onToggleIds?.() ?? false))
+    idBtn.title = 'показать номера горутин'
 
     const speeds = document.createElement('div')
     speeds.className = 'speeds'
@@ -80,6 +84,7 @@ export class Controls {
       speeds,
       this.scrub,
       this.time,
+      idBtn,
       sep(),
       labeled('сценарий', this.scenarioSel),
       labeled('GOMAXPROCS', this.procsInput),

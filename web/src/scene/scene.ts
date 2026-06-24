@@ -1,5 +1,6 @@
-import { Application, Container, Graphics, Text } from 'pixi.js'
-import type { GState, WorldState } from '../player/state'
+import { Application, Container, Graphics, Text, type FederatedPointerEvent } from 'pixi.js'
+import type { GState, GoroutineView, WorldState } from '../player/state'
+import { reasonCategory, REASON_CATEGORIES, type ReasonCategory } from '../player/reason'
 import { computeLayout, placeAll, type Geom, type Rect } from './layout'
 import { makeGopher, type Gopher } from './gopher'
 
@@ -15,6 +16,7 @@ const TXT_MUTED = 0x64748b
 const GC_MARK = 0xfbbf24
 const GC_STW = 0xef4444
 const PULSE_MS = 1000
+const STW_HOLD_MS = 700 // hold the (sub-frame) stop-the-world banner this long
 
 const STATE_COLOR: Record<GState, number> = {
   running: 0x4ade80,
@@ -22,6 +24,14 @@ const STATE_COLOR: Record<GState, number> = {
   waiting: 0x60a5fa,
   syscall: 0xc084fc,
   dead: 0x475569,
+}
+
+const STATE_RU: Record<GState, string> = {
+  running: 'бежит',
+  runnable: 'готова',
+  waiting: 'ждёт',
+  syscall: 'syscall',
+  dead: 'завершилась',
 }
 
 const LEGEND: ReadonlyArray<[number, string]> = [
@@ -38,11 +48,12 @@ interface Rec {
   ty: number
   pulse: number
   wasSteal: boolean
+  view?: GoroutineView
 }
 
 // Scene renders the WorldState with PixiJS: per-P lane cards, global/waiting/
-// syscall panels, a color legend, and a top HUD with the current GC phase and
-// heap bar. The ticker eases sprites toward targets and decays steal flashes.
+// syscall panels, a color legend, a top HUD (GC phase + heap) and a narration
+// caption. Hovering a gopher shows a tooltip; an id toggle labels goroutines.
 export class Scene {
   private gophers = new Map<number, Rec>()
   private readonly staticLayer = new Container()
@@ -53,8 +64,14 @@ export class Scene {
   private readonly heapGfx = new Graphics()
   private readonly gcLabel: Text
   private readonly heapLabel: Text
+  private readonly captionLabel: Text
+  private readonly waitingLabel: Text
   private geom: Geom
   private lastWorld?: WorldState
+  private showIds = false
+  private stwHold = 0
+  private wasStw = false
+  private tooltip!: HTMLDivElement
 
   private constructor(
     private readonly app: Application,
@@ -62,9 +79,12 @@ export class Scene {
   ) {
     this.gcLabel = new Text({ text: 'GC: —', style: { fill: TXT_LABEL, fontSize: 13, fontFamily: 'monospace' } })
     this.heapLabel = new Text({ text: 'куча —', style: { fill: TXT_MUTED, fontSize: 12, fontFamily: 'monospace' } })
+    this.captionLabel = new Text({ text: '', style: { fill: 0x93c5fd, fontSize: 14, fontFamily: 'monospace' } })
+    this.captionLabel.anchor.set(0.5, 0)
+    this.waitingLabel = new Text({ text: 'Ожидание', style: { fill: TXT_LABEL, fontSize: 12, fontFamily: 'monospace' } })
 
     this.stwOverlay.visible = false
-    this.hudLayer.addChild(this.gcChip, this.gcLabel, this.heapGfx, this.heapLabel)
+    this.hudLayer.addChild(this.gcChip, this.gcLabel, this.heapGfx, this.heapLabel, this.captionLabel, this.waitingLabel)
     app.stage.addChild(this.staticLayer, this.gopherLayer, this.stwOverlay, this.hudLayer)
 
     this.geom = computeLayout(numProcs, app.screen.width, app.screen.height)
@@ -78,6 +98,7 @@ export class Scene {
     parent.appendChild(app.canvas)
 
     const scene = new Scene(app, numProcs)
+    scene.tooltip = makeTooltip(parent)
     window.addEventListener('resize', () => scene.relayout())
     return scene
   }
@@ -94,6 +115,19 @@ export class Scene {
     this.lastWorld = world
     this.place(world)
     this.updateHud(world)
+    this.updateWaitingHeader(world)
+  }
+
+  // setCaption is driven by main (which has the timeline) via narrate().
+  setCaption(text: string): void {
+    this.captionLabel.text = text
+    this.captionLabel.x = this.geom.width / 2
+  }
+
+  toggleIds(): boolean {
+    this.showIds = !this.showIds
+    for (const rec of this.gophers.values()) rec.g.showLabel(this.showIds)
+    return this.showIds
   }
 
   private relayout(): void {
@@ -101,9 +135,14 @@ export class Scene {
     this.drawStatic()
     this.stwOverlay.clear()
     this.stwOverlay.rect(0, 0, this.geom.width, this.geom.height).fill({ color: GC_STW, alpha: 0.12 })
+    this.captionLabel.x = this.geom.width / 2
+    this.captionLabel.y = 38
+    this.waitingLabel.x = this.geom.waiting.x + 10
+    this.waitingLabel.y = this.geom.waiting.y + 7
     if (this.lastWorld) {
       this.place(this.lastWorld)
       this.updateHud(this.lastWorld)
+      this.updateWaitingHeader(this.lastWorld)
     }
   }
 
@@ -113,16 +152,13 @@ export class Scene {
     for (const [gid, p] of places) {
       let rec = this.gophers.get(gid)
       if (!rec) {
-        const g = makeGopher()
-        g.container.position.set(p.x, p.y)
-        this.gopherLayer.addChild(g.container)
-        rec = { g, tx: p.x, ty: p.y, pulse: 0, wasSteal: false }
-        this.gophers.set(gid, rec)
+        rec = this.spawn(gid, p.x, p.y)
       }
       rec.tx = p.x
       rec.ty = p.y
 
       const v = world.goroutines.get(gid)!
+      rec.view = v
       rec.g.setColor(STATE_COLOR[v.state])
 
       const stealNow = v.state === 'running' && v.stolen
@@ -138,11 +174,51 @@ export class Scene {
     }
   }
 
-  private updateHud(world: WorldState): void {
-    const stw = world.gcActive.some((n) => n.includes('stop-the-world'))
-    const mark = world.gcActive.some((n) => n.includes('mark phase'))
-    this.stwOverlay.visible = stw
+  private spawn(gid: number, x: number, y: number): Rec {
+    const g = makeGopher()
+    g.container.position.set(x, y)
+    g.setLabel(`G${gid}`)
+    g.showLabel(this.showIds)
 
+    const c = g.container
+    c.eventMode = 'static'
+    c.cursor = 'pointer'
+    c.on('pointerover', (e: FederatedPointerEvent) => this.showTip(gid, e))
+    c.on('pointermove', (e: FederatedPointerEvent) => this.positionTip(e))
+    c.on('pointerout', () => this.hideTip())
+
+    this.gopherLayer.addChild(c)
+    const rec: Rec = { g, tx: x, ty: y, pulse: 0, wasSteal: false }
+    this.gophers.set(gid, rec)
+    return rec
+  }
+
+  private showTip(gid: number, e: FederatedPointerEvent): void {
+    const view = this.gophers.get(gid)?.view
+    if (!view) return
+    this.tooltip.textContent = formatTip(gid, view)
+    this.tooltip.style.display = 'block'
+    this.positionTip(e)
+  }
+
+  private positionTip(e: FederatedPointerEvent): void {
+    const ne = e.nativeEvent as PointerEvent
+    this.tooltip.style.left = `${ne.clientX + 12}px`
+    this.tooltip.style.top = `${ne.clientY + 12}px`
+  }
+
+  private hideTip(): void {
+    this.tooltip.style.display = 'none'
+  }
+
+  private updateHud(world: WorldState): void {
+    const stwNow = world.gcActive.some((n) => n.includes('stop-the-world'))
+    const mark = world.gcActive.some((n) => n.includes('mark phase'))
+    if (stwNow && !this.wasStw) this.stwHold = 1
+    this.wasStw = stwNow
+    const stw = stwNow || this.stwHold > 0
+
+    this.stwOverlay.visible = stw
     const hud = this.geom.hud
     this.gcLabel.x = hud.x + 10
     this.gcLabel.y = hud.y + 6
@@ -161,6 +237,17 @@ export class Scene {
     }
 
     this.drawHeapBar(world.heapLive, world.heapGoal)
+  }
+
+  private updateWaitingHeader(world: WorldState): void {
+    const counts = new Map<ReasonCategory, number>()
+    for (const v of world.goroutines.values()) {
+      if (v.state !== 'waiting') continue
+      const c = reasonCategory(v.reason)
+      counts.set(c, (counts.get(c) ?? 0) + 1)
+    }
+    const parts = REASON_CATEGORIES.filter((c) => counts.has(c)).map((c) => `${c} ${counts.get(c)}`)
+    this.waitingLabel.text = parts.length ? `Ожидание · ${parts.join(' · ')}` : 'Ожидание (заблокированы)'
   }
 
   private drawHeapBar(live: number | undefined, goal: number | undefined): void {
@@ -184,6 +271,7 @@ export class Scene {
 
   private tick(dtMs: number): void {
     const k = 1 - Math.pow(0.0015, dtMs / 1000)
+    if (this.stwHold > 0) this.stwHold = Math.max(0, this.stwHold - dtMs / STW_HOLD_MS)
     for (const rec of this.gophers.values()) {
       const c = rec.g.container
       c.x += (rec.tx - c.x) * k
@@ -227,8 +315,8 @@ export class Scene {
       this.staticLayer.addChild(label(`P${lane.pid}`, lane.platform.x, lane.rect.y + 8, 'center', 13, TXT_LABEL))
       this.staticLayer.addChild(label('локальная очередь', lane.rect.x + 10, lane.bodyTop - 20, 'left', 10, TXT_MUTED))
     }
+    // The waiting header is dynamic (reason breakdown); global/syscall are static.
     this.staticLayer.addChild(label('Глобальная очередь', g.global.x + 10, g.global.y + 7, 'left', 12, TXT_LABEL))
-    this.staticLayer.addChild(label('Ожидание (заблокированы)', g.waiting.x + 10, g.waiting.y + 7, 'left', 12, TXT_LABEL))
     this.staticLayer.addChild(label('Syscall', g.syscall.x + 10, g.syscall.y + 7, 'left', 12, TXT_LABEL))
 
     this.drawLegend(g.legend)
@@ -251,6 +339,23 @@ export class Scene {
 
 function mb(bytes: number): string {
   return (bytes / 1048576).toFixed(1)
+}
+
+function formatTip(gid: number, view: GoroutineView): string {
+  let s = `G${gid} • ${STATE_RU[view.state]}`
+  if (view.state === 'waiting' && view.reason) s += `: ${view.reason}`
+  else if ((view.state === 'running' || view.state === 'syscall') && view.pid >= 0) s += ` (P${view.pid})`
+  return s
+}
+
+function makeTooltip(parent: HTMLElement): HTMLDivElement {
+  const t = document.createElement('div')
+  t.style.cssText =
+    'position:fixed;display:none;pointer-events:none;z-index:10;' +
+    'background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;' +
+    'padding:4px 8px;font:12px ui-monospace,monospace;white-space:nowrap'
+  parent.appendChild(t)
+  return t
 }
 
 function card(gfx: Graphics, r: Rect): void {
