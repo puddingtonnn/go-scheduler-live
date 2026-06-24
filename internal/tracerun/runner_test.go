@@ -106,6 +106,63 @@ func TestScenarioEvents(t *testing.T) {
 	})
 }
 
+// TestSchedulerInvariants verifies the normalized event stream respects core
+// scheduler truths on every scenario: at most GOMAXPROCS goroutines run at once,
+// a P runs at most one goroutine, and no goroutine "starts" while already
+// running. This is the model's faithfulness guard. Skipped under -short.
+func TestSchedulerInvariants(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: compiles and runs workload subprocesses")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+
+	const procs = 4
+	for _, sc := range []string{"workstealing", "pingpong", "gcpressure"} {
+		t.Run(sc, func(t *testing.T) {
+			raw, err := Run(ctx, Request{Scenario: sc, GOMAXPROCS: procs, Goroutines: 30, Duration: 600 * time.Millisecond})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			events, err := traceparse.Parse(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+
+			running := map[int64]int64{}  // gid -> pid
+			occupant := map[int64]int64{} // pid -> gid
+			maxRunning := 0
+			for _, e := range events {
+				switch e.Type {
+				case timeline.EventGRunStart, timeline.EventGSyscallExit:
+					if _, ok := running[e.GID]; ok {
+						t.Fatalf("G%d started while already running at t=%d", e.GID, e.T)
+					}
+					if occ, ok := occupant[e.PID]; ok && occ != e.GID {
+						t.Fatalf("P%d already runs G%d when G%d started at t=%d", e.PID, occ, e.GID, e.T)
+					}
+					running[e.GID] = e.PID
+					occupant[e.PID] = e.GID
+				case timeline.EventGRunStop, timeline.EventGBlock, timeline.EventGSyscallEnter, timeline.EventGExit:
+					if pid, ok := running[e.GID]; ok {
+						delete(running, e.GID)
+						if occupant[pid] == e.GID {
+							delete(occupant, pid)
+						}
+					}
+				}
+				if n := len(running); n > maxRunning {
+					maxRunning = n
+				}
+				if len(running) > procs {
+					t.Fatalf("%d goroutines running at once > GOMAXPROCS=%d at t=%d", len(running), procs, e.T)
+				}
+			}
+			t.Logf("%s: %d events, peak concurrent running = %d / %d", sc, len(events), maxRunning, procs)
+		})
+	}
+}
+
 func TestRunRejectsEmptyScenario(t *testing.T) {
 	if _, err := Run(context.Background(), Request{}); err == nil {
 		t.Fatal("expected error for empty scenario")

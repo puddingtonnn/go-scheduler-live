@@ -108,6 +108,7 @@ func TestGoEventType(t *testing.T) {
 		{"syscall exit", exptrace.GoSyscall, exptrace.GoRunning, timeline.EventGSyscallExit, true},
 		{"block", exptrace.GoRunning, exptrace.GoWaiting, timeline.EventGBlock, true},
 		{"unblock", exptrace.GoWaiting, exptrace.GoRunnable, timeline.EventGUnblock, true},
+		{"syscall to runnable", exptrace.GoSyscall, exptrace.GoRunnable, timeline.EventGUnblock, true},
 		{"run stop", exptrace.GoRunning, exptrace.GoRunnable, timeline.EventGRunStop, true},
 		{"exit", exptrace.GoRunning, exptrace.GoNotExist, timeline.EventGExit, true},
 		{"uninteresting", exptrace.GoRunnable, exptrace.GoRunnable, "", false},

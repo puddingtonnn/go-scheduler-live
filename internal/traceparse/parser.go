@@ -186,6 +186,10 @@ func goEventType(from, to exptrace.GoState) (timeline.EventType, bool) {
 		return timeline.EventGBlock, true
 	case from == exptrace.GoWaiting && to == exptrace.GoRunnable:
 		return timeline.EventGUnblock, true
+	case from == exptrace.GoSyscall && to == exptrace.GoRunnable:
+		// Returned from a syscall but the P was taken while it was parked, so it
+		// is now runnable (not running). Treated as "became runnable".
+		return timeline.EventGUnblock, true
 	case from == exptrace.GoRunning && to == exptrace.GoRunnable:
 		return timeline.EventGRunStop, true
 	case to == exptrace.GoNotExist:
