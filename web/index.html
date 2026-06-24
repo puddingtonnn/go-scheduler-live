@@ -4,7 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>gmp-model — гоферы планировщика Go</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      /* --- pixel-art palette (mirrors scene/palette.ts PAL) --- */
+      :root {
+        --bg0: #0b0c13;
+        --bg1: #13151f;
+        --bg2: #181b29;
+        --line: #262a40;
+        --line2: #2f344e;
+        --tx-hi: #e7eafb;
+        --tx-mid: #9aa0c2;
+        --tx-dim: #5d6385;
+        --teal: #34c9bf;
+        --running: #62d27a;
+        --runnable: #f2b53d;
+        --gc-stw: #ff5e5e;
+        --pf: 'Pixelify Sans', sans-serif;
+        --mn: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
       * {
         margin: 0;
         padding: 0;
@@ -16,10 +39,10 @@
         height: 100%;
       }
       body {
-        background: #0f172a;
+        background: var(--bg0);
         overflow: hidden;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        color: #94a3b8;
+        font-family: var(--mn);
+        color: var(--tx-mid);
       }
       canvas {
         display: block;
@@ -33,47 +56,221 @@
         min-height: 0;
         position: relative;
       }
+
+      /* --- header chrome: title + GC indicator + heap bar --- */
+      .chrome-head {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 18px;
+        background: var(--bg2);
+        border-bottom: 1px solid var(--line);
+      }
+      .chrome-head .title {
+        font-family: var(--pf);
+        font-size: 20px;
+        color: var(--tx-hi);
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+      }
+      .chrome-head .title .accent {
+        color: var(--running);
+      }
+      .chrome-head .spacer {
+        flex: 1;
+      }
+      .gc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .gc-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 1px;
+        background: var(--tx-dim);
+      }
+      .gc-label {
+        font-family: var(--pf);
+        font-size: 14px;
+        color: var(--tx-mid);
+        white-space: nowrap;
+      }
+      .heap {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 200px;
+      }
+      .heap-cap {
+        font-family: var(--pf);
+        font-size: 13px;
+        color: var(--tx-dim);
+      }
+      .heap-bar {
+        position: relative;
+        flex: 1;
+        min-width: 120px;
+        height: 12px;
+        background: var(--bg0);
+        border: 1px solid var(--line2);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .heap-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        background: var(--tx-dim);
+        transition: width 0.18s ease-out;
+      }
+      .heap-goal {
+        position: absolute;
+        left: 80%;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--runnable);
+      }
+      .heap-pct {
+        font-family: var(--mn);
+        font-size: 12px;
+        color: var(--tx-mid);
+        min-width: 34px;
+        text-align: right;
+      }
+
+      /* --- floating zone-label pills over the canvas --- */
+      .zone-pill {
+        position: absolute;
+        font-family: var(--pf);
+        font-size: 13px;
+        line-height: 1.2;
+        background: rgba(11, 12, 19, 0.72);
+        padding: 2px 7px;
+        border-radius: 2px;
+        border: 1px solid var(--line);
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .zone-pill.center {
+        transform: translateX(-50%);
+        text-align: center;
+      }
+      .zone-sub {
+        display: none;
+        margin-top: 2px;
+        font-family: var(--mn);
+        font-size: 11px;
+        color: var(--tx-mid);
+      }
+
+      /* --- "what's happening" caption + STW banner --- */
+      .caption {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        max-width: 72%;
+        text-align: center;
+        font-family: var(--pf);
+        font-size: 14px;
+        color: var(--tx-hi);
+        background: rgba(11, 12, 19, 0.78);
+        border: 1px solid var(--line);
+        border-radius: 3px;
+        padding: 5px 12px;
+        pointer-events: none;
+        z-index: 6;
+      }
+      .stw-banner {
+        position: absolute;
+        left: 50%;
+        top: 16px;
+        transform: translateX(-50%);
+        font-family: var(--pf);
+        font-size: 18px;
+        color: #fff;
+        background: var(--gc-stw);
+        padding: 6px 18px;
+        border-radius: 3px;
+        letter-spacing: 1px;
+        white-space: nowrap;
+        box-shadow: 0 0 20px rgba(255, 94, 94, 0.6);
+        pointer-events: none;
+        z-index: 7;
+      }
+
+      /* --- legend (color -> state) --- */
+      .chrome-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        padding: 10px 18px;
+        background: var(--bg2);
+        border-top: 1px solid var(--line);
+      }
+      .leg-item {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-family: var(--pf);
+        font-size: 13px;
+        color: var(--tx-mid);
+      }
+      .leg-item .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+      }
+
+      /* --- control bar (logic in controls.ts; pixel-palette retheme) --- */
       .controls {
         display: flex;
         flex-wrap: wrap;
         align-items: flex-end;
         gap: 8px;
-        padding: 8px 12px;
-        background: #0b1220;
-        border-bottom: 1px solid #1e293b;
+        padding: 10px 14px;
+        background: var(--bg1);
+        border-top: 1px solid var(--line);
       }
       .controls button,
       .controls select,
       .controls input {
-        font: inherit;
+        font-family: var(--mn);
         font-size: 13px;
-        color: #e2e8f0;
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 6px;
+        color: var(--tx-hi);
+        background: var(--bg2);
+        border: 1px solid var(--line2);
+        border-radius: 3px;
         padding: 6px 10px;
         min-height: 34px;
         cursor: pointer;
       }
       .controls button:hover,
       .controls select:hover {
-        background: #273449;
+        background: #232842;
       }
       .controls button:focus-visible,
       .controls select:focus-visible,
       .controls input:focus-visible {
-        outline: 2px solid #38bdf8;
+        outline: 2px solid var(--teal);
         outline-offset: 1px;
       }
       .controls button.active {
-        background: #1d4ed8;
-        border-color: #3b82f6;
-        color: #fff;
+        background: rgba(52, 201, 191, 0.14);
+        border-color: var(--teal);
+        color: var(--teal);
       }
       .controls button.run {
-        background: #15803d;
-        border-color: #22c55e;
-        color: #fff;
+        font-family: var(--pf);
+        background: var(--running);
+        border-color: var(--running);
+        color: var(--bg0);
+        letter-spacing: 0.5px;
       }
       .controls button:disabled {
         opacity: 0.5;
@@ -82,8 +279,9 @@
       .controls input[type='range'] {
         flex: 1 1 220px;
         min-width: 180px;
-        accent-color: #4ade80;
+        accent-color: var(--teal);
         padding: 0;
+        cursor: pointer;
       }
       .controls input[type='number'] {
         width: 68px;
@@ -93,11 +291,11 @@
         display: inline-flex;
         flex-direction: column;
         gap: 2px;
-        color: #94a3b8;
+        color: var(--tx-mid);
         font-size: 11px;
       }
       .controls .time {
-        color: #94a3b8;
+        color: var(--tx-dim);
         font-size: 12px;
         min-width: 130px;
         text-align: right;
@@ -106,7 +304,7 @@
       .controls .sep {
         width: 1px;
         align-self: stretch;
-        background: #1e293b;
+        background: var(--line);
         margin: 0 4px;
       }
       .controls .speeds {

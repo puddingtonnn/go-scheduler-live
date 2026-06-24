@@ -2,11 +2,13 @@ import { fetchScenarios, fetchRun, type RunParams } from './api'
 import type { Timeline } from './model/timeline'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
+import { Chrome } from './ui/chrome'
 import { Controls } from './controls'
 
-// Composition root: builds the control bar + canvas host, then on each run
-// fetches a Timeline, (re)configures the scene, and drives it with a fresh
-// virtual-clock Player. The old player is paused so only one clock ticks.
+// Composition root: builds the DOM chrome (header + legend) around the canvas
+// stage and the control bar, then on each run fetches a Timeline, (re)configures
+// the scene, and drives both the scene and the chrome from a fresh virtual-clock
+// Player. The old player is paused so only one clock ticks.
 async function boot(): Promise<void> {
   const root = document.getElementById('app')
   if (!root) throw new Error('#app not found')
@@ -20,6 +22,7 @@ async function boot(): Promise<void> {
 
   const stage = document.createElement('div')
   stage.className = 'stage'
+  const chrome = new Chrome(stage)
 
   const scenarios = await fetchScenarios()
 
@@ -27,8 +30,9 @@ async function boot(): Promise<void> {
   let player: Player | null = null
   let timeline: Timeline | null = null
 
+  // header on top, canvas stage in the middle, legend then control bar below.
+  root.append(chrome.header, stage, chrome.legend)
   const controls = new Controls(root, scenarios, (p) => void run(p), () => scene?.toggleIds() ?? false)
-  root.append(stage)
 
   // Expose the current player/scene/timeline for the screenshot harness and debugging.
   ;(globalThis as Record<string, unknown>).gmp = {
@@ -49,13 +53,21 @@ async function boot(): Promise<void> {
       const tl = await fetchRun(params)
       timeline = tl
       player?.pause()
-      if (!scene) scene = await Scene.create(stage, tl.meta.numProcs)
-      else scene.reset(tl.meta.numProcs)
+      if (!scene) {
+        scene = await Scene.create(stage, tl.meta.numProcs)
+        scene.onLayout = () => chrome.layout()
+        chrome.attachScene(scene)
+      } else {
+        scene.reset(tl.meta.numProcs)
+      }
+      chrome.setProcs(tl.meta.numProcs)
+      chrome.setEvents(tl.events)
 
       const sc = scene
       const p = new Player(tl)
       p.onTick = (w) => {
         sc.setWorld(w)
+        chrome.update(w)
         controls.sync()
       }
       player = p

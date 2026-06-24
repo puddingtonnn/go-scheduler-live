@@ -48,6 +48,31 @@
 - Время: `1x` = весь прогон за ~45с реального времени (нормализация к длительности;
   абсолютная длительность трейса — десятки мс).
 
+## Frontend — pixel-art floor796 редизайн (ветка `feat/pixel-art`, в работе)
+Переход с плоской сцены на **изометрию + пиксель-арт спрайты**. Дизайн-хэндофф:
+`design_handoff_go_scheduler/` (README-спек + `screens/*.png` +
+`Go Scheduler Pixel Style.dc.html` с процедурным кодом отрисовки). **Арт портируем из
+него**, не внешние ассеты; floor796-редактор НЕ используем. План: `~/.claude/plans/keen-swinging-leaf.md`.
+- Новые `web/src/scene/`: `palette.ts` (PAL ~28 hex), `drawgopher.ts` (`drawGopher` +
+  `gopherCanvas` **44×44**, оверлеи zzz/…/!/ring **запечены** в текстуру состояния),
+  `iso.ts` (проекция `(gx−gy)·12,(gx+gy)·6`; **база-мир 460×248** масштабируется под канвас;
+  `stationPositions`/`drawStation`/`drawGrid`), `layout.ts`→`placeIso`, `demo.ts` (`?iso`).
+- `scene.ts` переписан: изо-мир (grid+станции) + спрайт-гофер на gid из `WorldState`
+  (текстура по состоянию, бейк, **NEAREST**), **depth-sort `zIndex=y`** + lerp; steal=красный
+  спрайт+кольцо при `pulse`, STW=перекрас всех в `frozen`+виньетка. `gopher.ts` — спрайт-
+  обёртка (anchor 0.5/0.886). **Бэкенд и `player/*` НЕ тронуты.**
+- **Готово Ф1–Ф4.** Ф4 (chrome в DOM): новый слой `web/src/ui/` — `chrome.ts` (класс `Chrome`:
+  заголовок «Планировщик Go · G·M·P», GC-индикатор, heap-бар с goal-маркером на 80%, плавающие
+  pill-подписи зон, легенда, caption через `narrate`, сводка Ожидания через `reasonCategory`,
+  DOM-баннер STW) + `derive.ts` (чистые `gcPhase`/`heapPct`/`waitingBreakdown` под vitest, по
+  образцу `narrate.ts`/`reason.ts`). Текст — DOM (Pixelify Sans + JetBrains Mono, Google Fonts
+  в `index.html`), пиксель-мир — Pixi. `scene.ts` отдаёт `worldToScreen()` + хук `onLayout` →
+  pill-и трекают изо-кластеры при ресайзе/смене GOMAXPROCS (`Chrome.layout()`). `main.ts`
+  перекомпонован: header / stage / legend / controls. Контролы перетемлены под палитру
+  (CSS-only, логика `controls.ts` не тронута). **Бэкенд и `player/*` НЕ тронуты.** Слайс готов
+  к коммиту + merge в `dev` (по просьбе).
+- Тултип (DOM) и тоггл id (дочерний `Text`) сохранены и работают в новой сцене.
+
 ## Conventions
 - `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
 - Ошибки оборачиваем через `%w` с контекстом; sentinel-ошибки (`ErrNotFound`) для
@@ -58,6 +83,11 @@
   per-iteration loop vars (поведение 1.22+).
 - Код/идентификаторы/комментарии — английский; пользовательские строки
   (`Title`/`Description`) — русские.
+- Git-флоу: интеграционная ветка `dev`, каждый слайс — своя ветка от `dev`, merge `--ff-only`,
+  слитую ветку удаляем. Коммитим/пушим только по просьбе. Коммиты: лаконичный английский
+  subject + краткий список главных изменений, **без вотермарка** (`Co-Authored-By` и т.п.;
+  см. `~/.claude/CLAUDE.md`). Бэкенд-порт может занимать `:8080` (Docker) → сервер на `:8085`
+  + `GMP_API_TARGET=http://localhost:8085 npm run dev`.
 
 ## Gotchas
 - `golang.org/x/exp/trace` должен поддерживать версию формата трейса локального Go
