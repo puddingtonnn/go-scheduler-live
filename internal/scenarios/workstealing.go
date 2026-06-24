@@ -22,6 +22,7 @@ func (workStealing) Describe() ScenarioInfo {
 		ID:          "workstealing",
 		Title:       "Кража работы (work-stealing)",
 		Description: "Много коротких CPU-горутин. При GOMAXPROCS>1 простаивающие P крадут горутины у занятых.",
+		Order:       0,
 		Params: []ParamSpec{
 			{Name: "goroutines", Min: 1, Max: 200, Default: 50},
 		},

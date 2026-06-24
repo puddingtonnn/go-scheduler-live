@@ -9,6 +9,7 @@ package traceparse
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	exptrace "golang.org/x/exp/trace"
 
@@ -20,6 +21,10 @@ import (
 const (
 	metricHeapGoal = "/gc/heap/goal:bytes"
 	metricHeapLive = "/memory/classes/heap/objects:bytes"
+
+	// metricMinGapNs is the minimum trace-time gap between kept samples of the
+	// same metric (downsampling for a smooth-enough heap bar).
+	metricMinGapNs = 2_000_000
 )
 
 // Parse reads an execution trace from r and returns the normalized events.
@@ -30,9 +35,10 @@ func Parse(r io.Reader) ([]timeline.Event, error) {
 	}
 
 	var (
-		events []timeline.Event
-		haveT0 bool
-		t0     exptrace.Time
+		events     []timeline.Event
+		haveT0     bool
+		t0         exptrace.Time
+		lastMetric = map[string]int64{} // last emitted time per metric, for downsampling
 	)
 
 	// rel converts an absolute trace time to ns since the first event seen.
@@ -58,17 +64,34 @@ func Parse(r io.Reader) ([]timeline.Event, error) {
 				events = append(events, e)
 			}
 		case exptrace.EventRangeBegin:
-			events = append(events, rangeEvent(timeline.EventGCRangeBegin, ev, rel))
+			if keepRange(ev.Range().Name) {
+				events = append(events, rangeEvent(timeline.EventGCRangeBegin, ev, rel))
+			}
 		case exptrace.EventRangeEnd:
-			events = append(events, rangeEvent(timeline.EventGCRangeEnd, ev, rel))
+			if keepRange(ev.Range().Name) {
+				events = append(events, rangeEvent(timeline.EventGCRangeEnd, ev, rel))
+			}
 		case exptrace.EventMetric:
 			if e, ok := metricEvent(ev, rel); ok {
-				events = append(events, e)
+				// Downsample: the heap metric is emitted thousands of times under
+				// allocation pressure; one sample per metricMinGapNs is plenty for
+				// a smooth heap bar.
+				if last, seen := lastMetric[e.Name]; !seen || e.T-last >= metricMinGapNs {
+					lastMetric[e.Name] = e.T
+					events = append(events, e)
+				}
 			}
 		}
 	}
 
 	return events, nil
+}
+
+// keepRange selects the GC ranges worth visualizing — concurrent mark phases
+// and stop-the-world pauses — and drops the high-frequency noise (incremental
+// sweep, mark assist) that would otherwise flood the timeline.
+func keepRange(name string) bool {
+	return strings.Contains(name, "stop-the-world") || strings.Contains(name, "mark phase")
 }
 
 func rangeEvent(typ timeline.EventType, ev exptrace.Event, rel func(exptrace.Time) int64) timeline.Event {

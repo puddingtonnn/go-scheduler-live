@@ -1,4 +1,5 @@
 import { fetchScenarios, fetchRun, type RunParams } from './api'
+import type { Timeline } from './model/timeline'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
 import { Controls } from './controls'
@@ -17,11 +18,12 @@ async function boot(): Promise<void> {
 
   let scene: Scene | null = null
   let player: Player | null = null
+  let timeline: Timeline | null = null
 
   const controls = new Controls(root, scenarios, (p) => void run(p))
   root.append(stage)
 
-  // Expose the current player/scene for the screenshot harness and debugging.
+  // Expose the current player/scene/timeline for the screenshot harness and debugging.
   ;(globalThis as Record<string, unknown>).gmp = {
     get player() {
       return player
@@ -29,12 +31,16 @@ async function boot(): Promise<void> {
     get scene() {
       return scene
     },
+    get timeline() {
+      return timeline
+    },
   }
 
   async function run(params: RunParams): Promise<void> {
     controls.setLoading(true)
     try {
       const tl = await fetchRun(params)
+      timeline = tl
       player?.pause()
       if (!scene) scene = await Scene.create(stage, tl.meta.numProcs)
       else scene.reset(tl.meta.numProcs)

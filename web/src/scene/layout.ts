@@ -30,6 +30,7 @@ export interface Geom {
   waiting: Rect // blocked goroutines
   syscall: Rect
   legend: Rect
+  hud: Rect // top-right strip: GC phase chip + heap bar
 }
 
 const CARD_HEADER = 30 // reserved header height inside side cards before packing
@@ -76,6 +77,7 @@ export function computeLayout(numProcs: number, width: number, height: number): 
     waiting: card(1),
     syscall: card(2),
     legend: { x: margin, y: height - legendH, w: innerW, h: legendH },
+    hud: { x: Math.max(360, width * 0.42), y: 6, w: width - margin - Math.max(360, width * 0.42), h: 30 },
   }
 }
 

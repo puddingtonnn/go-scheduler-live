@@ -54,5 +54,6 @@ export interface ScenarioInfo {
   id: string
   title: string
   description: string
+  order: number
   params: ScenarioParam[]
 }

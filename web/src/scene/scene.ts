@@ -12,6 +12,8 @@ const PLATFORM_BORDER = 0x64748b
 const TXT_TITLE = 0xf8fafc
 const TXT_LABEL = 0xcbd5e1
 const TXT_MUTED = 0x64748b
+const GC_MARK = 0xfbbf24
+const GC_STW = 0xef4444
 const PULSE_MS = 1000
 
 const STATE_COLOR: Record<GState, number> = {
@@ -27,7 +29,7 @@ const LEGEND: ReadonlyArray<[number, string]> = [
   [STATE_COLOR.runnable, 'готова'],
   [STATE_COLOR.waiting, 'ждёт'],
   [STATE_COLOR.syscall, 'syscall'],
-  [0xef4444, 'кража (вспышка)'],
+  [GC_STW, 'кража (вспышка)'],
 ]
 
 interface Rec {
@@ -38,14 +40,19 @@ interface Rec {
   wasSteal: boolean
 }
 
-// Scene renders the WorldState with PixiJS: a row of per-P lane cards on the
-// left, global/waiting/syscall cards on the right, a color legend at the bottom.
-// setWorld assigns each gopher a target; the ticker eases sprites toward targets
-// and decays steal flashes. The canvas fills the window and re-lays-out on resize.
+// Scene renders the WorldState with PixiJS: per-P lane cards, global/waiting/
+// syscall panels, a color legend, and a top HUD with the current GC phase and
+// heap bar. The ticker eases sprites toward targets and decays steal flashes.
 export class Scene {
   private gophers = new Map<number, Rec>()
   private readonly staticLayer = new Container()
   private readonly gopherLayer = new Container()
+  private readonly stwOverlay = new Graphics()
+  private readonly hudLayer = new Container()
+  private readonly gcChip = new Graphics()
+  private readonly heapGfx = new Graphics()
+  private readonly gcLabel: Text
+  private readonly heapLabel: Text
   private geom: Geom
   private lastWorld?: WorldState
 
@@ -53,7 +60,13 @@ export class Scene {
     private readonly app: Application,
     private numProcs: number,
   ) {
-    app.stage.addChild(this.staticLayer, this.gopherLayer)
+    this.gcLabel = new Text({ text: 'GC: —', style: { fill: TXT_LABEL, fontSize: 13, fontFamily: 'monospace' } })
+    this.heapLabel = new Text({ text: 'куча —', style: { fill: TXT_MUTED, fontSize: 12, fontFamily: 'monospace' } })
+
+    this.stwOverlay.visible = false
+    this.hudLayer.addChild(this.gcChip, this.gcLabel, this.heapGfx, this.heapLabel)
+    app.stage.addChild(this.staticLayer, this.gopherLayer, this.stwOverlay, this.hudLayer)
+
     this.geom = computeLayout(numProcs, app.screen.width, app.screen.height)
     this.drawStatic()
     app.ticker.add((t) => this.tick(t.deltaMS))
@@ -69,8 +82,6 @@ export class Scene {
     return scene
   }
 
-  // reset reconfigures the scene for a new run (possibly different GOMAXPROCS),
-  // clearing all gophers and redrawing the layout.
   reset(numProcs: number): void {
     this.numProcs = numProcs
     for (const rec of this.gophers.values()) rec.g.container.destroy()
@@ -82,12 +93,18 @@ export class Scene {
   setWorld(world: WorldState): void {
     this.lastWorld = world
     this.place(world)
+    this.updateHud(world)
   }
 
   private relayout(): void {
     this.geom = computeLayout(this.numProcs, this.app.screen.width, this.app.screen.height)
     this.drawStatic()
-    if (this.lastWorld) this.place(this.lastWorld)
+    this.stwOverlay.clear()
+    this.stwOverlay.rect(0, 0, this.geom.width, this.geom.height).fill({ color: GC_STW, alpha: 0.12 })
+    if (this.lastWorld) {
+      this.place(this.lastWorld)
+      this.updateHud(this.lastWorld)
+    }
   }
 
   private place(world: WorldState): void {
@@ -119,6 +136,50 @@ export class Scene {
         this.gophers.delete(gid)
       }
     }
+  }
+
+  private updateHud(world: WorldState): void {
+    const stw = world.gcActive.some((n) => n.includes('stop-the-world'))
+    const mark = world.gcActive.some((n) => n.includes('mark phase'))
+    this.stwOverlay.visible = stw
+
+    const hud = this.geom.hud
+    this.gcLabel.x = hud.x + 10
+    this.gcLabel.y = hud.y + 6
+    this.gcChip.clear()
+    if (stw || mark) {
+      const color = stw ? GC_STW : GC_MARK
+      this.gcLabel.text = stw ? 'GC: STOP-THE-WORLD' : 'GC: concurrent mark'
+      this.gcLabel.style.fill = color
+      this.gcChip
+        .roundRect(hud.x, hud.y, this.gcLabel.width + 20, 28, 6)
+        .fill({ color, alpha: 0.18 })
+        .stroke({ width: 1, color })
+    } else {
+      this.gcLabel.text = 'GC: —'
+      this.gcLabel.style.fill = TXT_MUTED
+    }
+
+    this.drawHeapBar(world.heapLive, world.heapGoal)
+  }
+
+  private drawHeapBar(live: number | undefined, goal: number | undefined): void {
+    const hud = this.geom.hud
+    const x = hud.x + 250
+    const y = hud.y + 7
+    const w = Math.max(80, Math.min(180, hud.w - 360))
+    const h = 14
+    this.heapGfx.clear()
+    this.heapGfx.roundRect(x, y, w, h, 4).fill(0x1e293b).stroke({ width: 1, color: BORDER })
+    if (live != null && goal != null && goal > 0) {
+      const frac = Math.min(1, live / goal)
+      this.heapGfx.roundRect(x, y, Math.max(2, w * frac), h, 4).fill(0x4ade80)
+      this.heapLabel.text = `куча ${mb(live)} / ${mb(goal)} МБ`
+    } else {
+      this.heapLabel.text = 'куча —'
+    }
+    this.heapLabel.x = x + w + 8
+    this.heapLabel.y = y - 1
   }
 
   private tick(dtMs: number): void {
@@ -179,13 +240,17 @@ export class Scene {
     const y = r.y + r.h / 2
     let x = r.x + 4
     for (const [color, text] of LEGEND) {
-      if (color === 0xef4444) gfx.circle(x + 7, y, 6).stroke({ width: 2, color })
+      if (color === GC_STW) gfx.circle(x + 7, y, 6).stroke({ width: 2, color })
       else gfx.circle(x + 7, y, 6).fill(color)
       const t = label(text, x + 20, y - 7, 'left', 12, TXT_LABEL)
       this.staticLayer.addChild(t)
       x += 20 + t.width + 24
     }
   }
+}
+
+function mb(bytes: number): string {
+  return (bytes / 1048576).toFixed(1)
 }
 
 function card(gfx: Graphics, r: Rect): void {

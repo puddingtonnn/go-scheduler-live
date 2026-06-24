@@ -37,6 +37,7 @@ type ScenarioInfo struct {
 	ID          string      `json:"id"`
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
+	Order       int         `json:"order"` // display/teaching order (lower first)
 	Params      []ParamSpec `json:"params"`
 }
 
@@ -77,6 +78,11 @@ func All() []ScenarioInfo {
 	for _, s := range registry {
 		infos = append(infos, s.Describe())
 	}
-	sort.Slice(infos, func(i, j int) bool { return infos[i].ID < infos[j].ID })
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].Order != infos[j].Order {
+			return infos[i].Order < infos[j].Order
+		}
+		return infos[i].ID < infos[j].ID
+	})
 	return infos
 }
