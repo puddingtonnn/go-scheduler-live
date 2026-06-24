@@ -18,12 +18,100 @@
       body {
         background: #0f172a;
         overflow: hidden;
-        font-family:
-          ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #94a3b8;
       }
       canvas {
         display: block;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+      }
+      .stage {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #0b1220;
+        border-bottom: 1px solid #1e293b;
+      }
+      .controls button,
+      .controls select,
+      .controls input {
+        font: inherit;
+        font-size: 13px;
+        color: #e2e8f0;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 6px 10px;
+        min-height: 34px;
+        cursor: pointer;
+      }
+      .controls button:hover,
+      .controls select:hover {
+        background: #273449;
+      }
+      .controls button:focus-visible,
+      .controls select:focus-visible,
+      .controls input:focus-visible {
+        outline: 2px solid #38bdf8;
+        outline-offset: 1px;
+      }
+      .controls button.active {
+        background: #1d4ed8;
+        border-color: #3b82f6;
+        color: #fff;
+      }
+      .controls button.run {
+        background: #15803d;
+        border-color: #22c55e;
+        color: #fff;
+      }
+      .controls button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .controls input[type='range'] {
+        flex: 1 1 220px;
+        min-width: 180px;
+        accent-color: #4ade80;
+        padding: 0;
+      }
+      .controls input[type='number'] {
+        width: 68px;
+        cursor: text;
+      }
+      .controls label {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 2px;
+        color: #94a3b8;
+        font-size: 11px;
+      }
+      .controls .time {
+        color: #94a3b8;
+        font-size: 12px;
+        min-width: 130px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .controls .sep {
+        width: 1px;
+        align-self: stretch;
+        background: #1e293b;
+        margin: 0 4px;
+      }
+      .controls .speeds {
+        display: flex;
+        gap: 4px;
       }
     </style>
   </head>

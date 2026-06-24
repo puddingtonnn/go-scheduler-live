@@ -1,39 +1,69 @@
-import { fetchScenarios, fetchRun } from './api'
+import { fetchScenarios, fetchRun, type RunParams } from './api'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
+import { Controls } from './controls'
 
-// F3 entry: load a Timeline, build the scene + player, auto-play. Real controls
-// (play/pause/scrub/speed, scenario picker) arrive in F4; for now Space toggles
-// play/pause so the scene can be eyeballed.
+// Composition root: builds the control bar + canvas host, then on each run
+// fetches a Timeline, (re)configures the scene, and drives it with a fresh
+// virtual-clock Player. The old player is paused so only one clock ticks.
 async function boot(): Promise<void> {
   const root = document.getElementById('app')
   if (!root) throw new Error('#app not found')
-  root.textContent = 'Загрузка…'
 
-  try {
-    const scenarios = await fetchScenarios()
-    const tl = await fetchRun({ scenario: scenarios[0].id, gomaxprocs: 4, goroutines: 50 })
-    root.textContent = ''
+  const stage = document.createElement('div')
+  stage.className = 'stage'
 
-    const scene = await Scene.create(root, tl.meta.numProcs)
-    const player = new Player(tl)
-    player.onTick = (w) => scene.setWorld(w)
+  const scenarios = await fetchScenarios()
 
-    // Expose for the headless screenshot harness (and manual debugging).
-    ;(globalThis as Record<string, unknown>).gmp = { player, scene }
+  let scene: Scene | null = null
+  let player: Player | null = null
 
-    player.emit()
-    player.play()
+  const controls = new Controls(root, scenarios, (p) => void run(p))
+  root.append(stage)
 
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') {
-        e.preventDefault()
-        player.toggle()
-      }
-    })
-  } catch (e) {
-    root.textContent = `Ошибка: ${e instanceof Error ? e.message : String(e)}`
+  // Expose the current player/scene for the screenshot harness and debugging.
+  ;(globalThis as Record<string, unknown>).gmp = {
+    get player() {
+      return player
+    },
+    get scene() {
+      return scene
+    },
   }
+
+  async function run(params: RunParams): Promise<void> {
+    controls.setLoading(true)
+    try {
+      const tl = await fetchRun(params)
+      player?.pause()
+      if (!scene) scene = await Scene.create(stage, tl.meta.numProcs)
+      else scene.reset(tl.meta.numProcs)
+
+      const sc = scene
+      const p = new Player(tl)
+      p.onTick = (w) => {
+        sc.setWorld(w)
+        controls.sync()
+      }
+      player = p
+      controls.bindPlayer(p)
+      p.emit()
+      p.play()
+    } catch (e) {
+      stage.textContent = `Ошибка: ${e instanceof Error ? e.message : String(e)}`
+    } finally {
+      controls.setLoading(false)
+    }
+  }
+
+  await run({ scenario: scenarios[0].id, gomaxprocs: 4, goroutines: 50 })
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault()
+      player?.toggle()
+    }
+  })
 }
 
 void boot()

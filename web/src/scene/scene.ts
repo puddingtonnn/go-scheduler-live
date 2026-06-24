@@ -51,7 +51,7 @@ export class Scene {
 
   private constructor(
     private readonly app: Application,
-    private readonly numProcs: number,
+    private numProcs: number,
   ) {
     app.stage.addChild(this.staticLayer, this.gopherLayer)
     this.geom = computeLayout(numProcs, app.screen.width, app.screen.height)
@@ -61,12 +61,22 @@ export class Scene {
 
   static async create(parent: HTMLElement, numProcs: number): Promise<Scene> {
     const app = new Application()
-    await app.init({ resizeTo: window, background: BG, antialias: true })
+    await app.init({ resizeTo: parent, background: BG, antialias: true })
     parent.appendChild(app.canvas)
 
     const scene = new Scene(app, numProcs)
     window.addEventListener('resize', () => scene.relayout())
     return scene
+  }
+
+  // reset reconfigures the scene for a new run (possibly different GOMAXPROCS),
+  // clearing all gophers and redrawing the layout.
+  reset(numProcs: number): void {
+    this.numProcs = numProcs
+    for (const rec of this.gophers.values()) rec.g.container.destroy()
+    this.gophers.clear()
+    this.lastWorld = undefined
+    this.relayout()
   }
 
   setWorld(world: WorldState): void {

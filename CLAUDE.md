@@ -31,6 +31,23 @@
   клампится по `ParamSpec` самого сценария, `gomaxprocs`∈[1,8], `duration`∈[100ms,10s]).
 - `cmd/server -addr :8080` монтирует `api.New(tracerun.Run)`.
 
+## Frontend (web/) — отдельный срез
+- Стек: Vite + TypeScript + PixiJS (v8). Dev: `npm run dev`; сборка/тайпчек:
+  `npm run build` (= `tsc --noEmit && vite build`); юнит-тесты: `npx vitest run`.
+- Dev-прокси `/api` → бэкенд; таргет через `GMP_API_TARGET` (дефолт `:8080`). На
+  машине пользователя `:8080` занят Docker → запускать
+  `go run ./cmd/server -addr :8085` + `GMP_API_TARGET=http://localhost:8085 npm run dev`.
+- Слои: `model/timeline.ts` (ручное зеркало Go-DTO) → `api.ts` → `player/`
+  (чистый `stateAt(t)→WorldState` + класс `Player` — виртуальные часы) → `scene/`
+  (PixiJS: дорожки-P, панель Global/Waiting/Syscall, легенда; гоферы по состоянию,
+  кража = транзиентная вспышка) → `controls.ts` (DOM-бар) → `main.ts` (композиция,
+  пере-запуск с pause старого Player + `scene.reset`).
+- Чистая логика под vitest (`stateAt`, `placeAll`, `nextTime`); канвас-рендер — нет.
+- Визуал проверяется headless: `scripts/shoot.mjs` (Playwright) — двигает плеер через
+  `window.gmp` и пишет PNG (так визуал сверяется без участия человека).
+- Время: `1x` = весь прогон за ~45с реального времени (нормализация к длительности;
+  абсолютная длительность трейса — десятки мс).
+
 ## Conventions
 - `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
 - Ошибки оборачиваем через `%w` с контекстом; sentinel-ошибки (`ErrNotFound`) для
