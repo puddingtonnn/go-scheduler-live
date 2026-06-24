@@ -1,6 +1,5 @@
 import { fetchScenarios, fetchRun, type RunParams } from './api'
 import type { Timeline } from './model/timeline'
-import { narrate } from './player/narrate'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
 import { Controls } from './controls'
@@ -11,6 +10,13 @@ import { Controls } from './controls'
 async function boot(): Promise<void> {
   const root = document.getElementById('app')
   if (!root) throw new Error('#app not found')
+
+  // Phase-1 pixel-art demo (static iso scene, no data): /?iso
+  if (new URLSearchParams(location.search).has('iso')) {
+    const { renderIsoDemo } = await import('./scene/demo')
+    await renderIsoDemo(root)
+    return
+  }
 
   const stage = document.createElement('div')
   stage.className = 'stage'
@@ -50,7 +56,6 @@ async function boot(): Promise<void> {
       const p = new Player(tl)
       p.onTick = (w) => {
         sc.setWorld(w)
-        sc.setCaption(narrate(tl.events, p.t))
         controls.sync()
       }
       player = p

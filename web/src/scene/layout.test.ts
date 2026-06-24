@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { computeLayout, placeAll, type Rect } from './layout'
+import { placeIso, WAITING, SYSCALL } from './layout'
+import { stationPositions } from './iso'
 import { NO_RESOURCE } from '../model/timeline'
 import type { GoroutineView, WorldState } from '../player/state'
 
@@ -9,47 +10,41 @@ function world(views: GoroutineView[]): WorldState {
   return { t: 0, procs: [], goroutines, gcActive: [] }
 }
 
-function inRect(x: number, y: number, r: Rect): boolean {
-  return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
+function inRect(p: { x: number; y: number }, r: { x: number; y: number; w: number; h: number }): boolean {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
 }
 
-const geom = computeLayout(4, 1400, 800)
-
-describe('placeAll', () => {
-  it('stands a running goroutine on its lane platform', () => {
-    const p = placeAll(world([{ gid: 1, state: 'running', pid: 2, stolen: false }]), geom)
-    expect(p.get(1)!.x).toBeCloseTo(geom.lanes[2].platform.x)
-    expect(p.get(1)!.y).toBeCloseTo(geom.lanes[2].platform.y)
+describe('placeIso', () => {
+  it('stands a running goroutine on its station', () => {
+    const st = stationPositions(4)[2]
+    const p = placeIso(world([{ gid: 1, state: 'running', pid: 2, stolen: false }]), 4)
+    expect(p.get(1)).toEqual({ x: st.x, y: st.y })
   })
 
-  it('gives two runnables on the same P distinct positions inside its lane', () => {
-    const p = placeAll(
+  it('stacks two runnables of the same P at distinct spots below it', () => {
+    const p = placeIso(
       world([
         { gid: 1, state: 'runnable', pid: 0, stolen: false },
         { gid: 2, state: 'runnable', pid: 0, stolen: false },
       ]),
-      geom,
+      4,
     )
+    const st = stationPositions(4)[0]
     expect(p.get(1)).not.toEqual(p.get(2))
-    expect(inRect(p.get(1)!.x, p.get(1)!.y, geom.lanes[0].rect)).toBe(true)
+    expect(p.get(1)!.y).toBeGreaterThan(st.y) // toward the viewer
   })
 
-  it('puts a runnable with no P in the global card', () => {
-    const p = placeAll(world([{ gid: 9, state: 'runnable', pid: NO_RESOURCE, stolen: false }]), geom)
-    expect(inRect(p.get(9)!.x, p.get(9)!.y, geom.global)).toBe(true)
-  })
-
-  it('places waiting and syscall in their cards and skips dead', () => {
-    const p = placeAll(
+  it('places waiting and syscall in their zones, skips dead', () => {
+    const p = placeIso(
       world([
         { gid: 1, state: 'waiting', pid: NO_RESOURCE, stolen: false, reason: 'chan receive' },
         { gid: 2, state: 'syscall', pid: 1, stolen: false },
         { gid: 3, state: 'dead', pid: NO_RESOURCE, stolen: false },
       ]),
-      geom,
+      4,
     )
-    expect(inRect(p.get(1)!.x, p.get(1)!.y, geom.waiting)).toBe(true)
-    expect(inRect(p.get(2)!.x, p.get(2)!.y, geom.syscall)).toBe(true)
+    expect(inRect(p.get(1)!, WAITING)).toBe(true)
+    expect(inRect(p.get(2)!, SYSCALL)).toBe(true)
     expect(p.has(3)).toBe(false)
   })
 })

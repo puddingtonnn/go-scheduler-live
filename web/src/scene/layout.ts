@@ -1,9 +1,13 @@
 import type { WorldState } from '../player/state'
+import { stationPositions, type Pt } from './iso'
 
-export interface Point {
-  x: number
-  y: number
-}
+// placeIso maps each live goroutine to a position in the base (460x248) world,
+// following the handoff composition: running gophers stand on their P station,
+// runnable ones pile in the local queue under that P (or the global queue at
+// left), waiting/syscall cluster in their bottom zones. Pure → unit-tested.
+// Gophers overlap (spacing < sprite width) on purpose — the cozy floor796 pile,
+// resolved by depth-sort in the scene.
+
 export interface Rect {
   x: number
   y: number
@@ -11,130 +15,55 @@ export interface Rect {
   h: number
 }
 
-// A Lane is one processor P drawn as a self-contained card: the platform (where
-// the running goroutine stands) at the top, its local run queue stacked below.
-export interface Lane {
-  pid: number
-  rect: Rect
-  platform: Point
-  bodyTop: number // y where the local queue starts
-}
+export const WAITING: Rect = { x: 150, y: 186, w: 152, h: 58 }
+export const SYSCALL: Rect = { x: 330, y: 186, w: 120, h: 58 }
+export const GLOBAL: Rect = { x: 14, y: 150, w: 44, h: 92 }
+const PACK = 13
 
-export interface Geom {
-  width: number
-  height: number
-  slot: number
-  title: Point
-  lanes: Lane[]
-  global: Rect // runnable goroutines with no associated P
-  waiting: Rect // blocked goroutines
-  syscall: Rect
-  legend: Rect
-  hud: Rect // top-right strip: GC phase chip + heap bar
-}
-
-const CARD_HEADER = 30 // reserved header height inside side cards before packing
-const CARD_PAD = 10
-
-export function computeLayout(numProcs: number, width: number, height: number): Geom {
-  const margin = 20
-  const gap = 12
-  const slot = 26
-  const titleH = 40
-  const legendH = 40
-
-  const contentTop = titleH + margin
-  const contentBottom = height - legendH - margin
-  const contentH = Math.max(160, contentBottom - contentTop)
-
-  const innerW = width - margin * 2
-  const rightW = Math.min(340, Math.max(220, innerW * 0.26))
-  const leftW = innerW - rightW - gap
-
-  const n = Math.max(1, numProcs)
-  const laneW = (leftW - gap * (n - 1)) / n
-  const lanes: Lane[] = Array.from({ length: n }, (_, i) => {
-    const x = margin + i * (laneW + gap)
-    return {
-      pid: i,
-      rect: { x, y: contentTop, w: laneW, h: contentH },
-      platform: { x: x + laneW / 2, y: contentTop + 34 },
-      bodyTop: contentTop + 74,
-    }
-  })
-
-  const rightX = margin + leftW + gap
-  const cardH = (contentH - gap * 2) / 3
-  const card = (k: number): Rect => ({ x: rightX, y: contentTop + (cardH + gap) * k, w: rightW, h: cardH })
-
+function packGrid(r: Rect, i: number, spacing: number): Pt {
+  const cols = Math.max(1, Math.floor(r.w / spacing))
   return {
-    width,
-    height,
-    slot,
-    title: { x: margin, y: 14 },
-    lanes,
-    global: card(0),
-    waiting: card(1),
-    syscall: card(2),
-    legend: { x: margin, y: height - legendH, w: innerW, h: legendH },
-    hud: { x: Math.max(360, width * 0.42), y: 6, w: width - margin - Math.max(360, width * 0.42), h: 30 },
+    x: r.x + spacing / 2 + (i % cols) * spacing,
+    y: r.y + spacing / 2 + Math.floor(i / cols) * spacing,
   }
 }
 
-// packInRect places item i into a left-to-right, top-to-bottom grid inside r,
-// below a reserved header.
-function packInRect(r: Rect, i: number, slot: number): Point {
-  const cols = Math.max(1, Math.floor((r.w - CARD_PAD * 2) / slot))
-  const col = i % cols
-  const row = Math.floor(i / cols)
-  return {
-    x: r.x + CARD_PAD + slot / 2 + col * slot,
-    y: r.y + CARD_HEADER + slot / 2 + row * slot,
-  }
-}
-
-// placeAll assigns a target position to every live goroutine, grouping by state
-// into lanes (per-P) and side cards, packing each deterministically (sorted by
-// gid). Pure, so the slotting is unit-tested. Dead goroutines get no placement.
-export function placeAll(world: WorldState, g: Geom): Map<number, Point> {
-  const out = new Map<number, Point>()
-  const localCount = g.lanes.map(() => 0)
+export function placeIso(world: WorldState, numProcs: number): Map<number, Pt> {
+  const out = new Map<number, Pt>()
+  const stations = stationPositions(numProcs)
+  const localN = stations.map(() => 0)
   let globalN = 0
   let waitN = 0
   let sysN = 0
 
-  const laneFor = (pid: number): Lane | undefined =>
-    pid >= 0 && pid < g.lanes.length ? g.lanes[pid] : undefined
-
   const gids = [...world.goroutines.keys()].sort((a, b) => a - b)
   for (const gid of gids) {
     const v = world.goroutines.get(gid)!
+    const onP = v.pid >= 0 && v.pid < stations.length
     switch (v.state) {
       case 'running': {
-        const lane = laneFor(v.pid) ?? g.lanes[0]
-        out.set(gid, { x: lane.platform.x, y: lane.platform.y })
+        const st = onP ? stations[v.pid] : stations[0]
+        out.set(gid, { x: st.x, y: st.y })
         break
       }
+      case 'syscall':
+        out.set(gid, packGrid(SYSCALL, sysN++, PACK))
+        break
+      case 'waiting':
+        out.set(gid, packGrid(WAITING, waitN++, PACK))
+        break
       case 'runnable': {
-        const lane = laneFor(v.pid)
-        if (lane) {
-          const i = localCount[lane.pid]++
-          const cols = Math.max(1, Math.floor((lane.rect.w - CARD_PAD * 2) / g.slot))
-          out.set(gid, {
-            x: lane.rect.x + CARD_PAD + g.slot / 2 + (i % cols) * g.slot,
-            y: lane.bodyTop + g.slot / 2 + Math.floor(i / cols) * g.slot,
-          })
+        if (onP) {
+          const i = localN[v.pid]++
+          const st = stations[v.pid]
+          // stack down-left toward the viewer, wrapping into left columns
+          out.set(gid, { x: st.x - 4 - Math.floor(i / 5) * 11, y: st.y + 28 + (i % 5) * 11 })
         } else {
-          out.set(gid, packInRect(g.global, globalN++, g.slot))
+          const i = globalN++
+          out.set(gid, { x: GLOBAL.x + 8 + Math.floor(i / 7) * 14, y: GLOBAL.y + 6 + (i % 7) * 12 })
         }
         break
       }
-      case 'waiting':
-        out.set(gid, packInRect(g.waiting, waitN++, g.slot))
-        break
-      case 'syscall':
-        out.set(gid, packInRect(g.syscall, sysN++, g.slot))
-        break
       case 'dead':
         break
     }
