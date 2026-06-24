@@ -90,11 +90,14 @@ export class Player {
     const now = performance.now()
     this._t = nextTime(this._t, now - this.lastReal, this.duration, this._speed)
     this.lastReal = now
-    this.emit()
     if (this._t >= this.duration) {
+      // Pause first, then emit, so listeners (the play button label) see the
+      // paused state at the end of playback.
       this.pause()
+      this.emit()
       return
     }
+    this.emit()
     this.raf = requestAnimationFrame(this.frame)
   }
 }

@@ -9,6 +9,7 @@ const SPEEDS = [0.25, 0.5, 1, 2, 4]
 // It owns no timeline state; re-running is delegated to onRun.
 export class Controls {
   private player: Player | null = null
+  private currentSpeed = 1
 
   private readonly playBtn: HTMLButtonElement
   private readonly scrub: HTMLInputElement
@@ -34,6 +35,7 @@ export class Controls {
     speeds.className = 'speeds'
     for (const s of SPEEDS) {
       const b = button(`${s}×`, () => {
+        this.currentSpeed = s
         this.player?.setSpeed(s)
         this.setSpeedActive(s)
       })
@@ -90,7 +92,8 @@ export class Controls {
 
   bindPlayer(player: Player): void {
     this.player = player
-    this.setSpeedActive(player.speed)
+    player.setSpeed(this.currentSpeed) // keep the chosen speed across re-runs
+    this.setSpeedActive(this.currentSpeed)
     this.sync()
   }
 

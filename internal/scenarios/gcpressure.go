@@ -54,14 +54,16 @@ func (gcPressure) Run(ctx context.Context, p Params) error {
 }
 
 // allocate churns short-lived heap objects, retaining only a small rolling
-// window so most become garbage. It returns an accumulator so the work stays
-// observable, and checks ctx periodically to stop.
+// window so most become garbage. Between bursts it paces with CPU work (not a
+// timer sleep), so the goroutine stays Running/Runnable — visible on the P
+// platforms and queues — while the heap sawtooths through GC cycles. It returns
+// an accumulator so the work stays observable, and checks ctx to stop.
 func allocate(ctx context.Context) int {
 	const (
 		blockSize = 8192
 		batch     = 24
 		windowCap = 128
-		pause     = 16 * time.Millisecond
+		pace      = 4 * time.Millisecond
 	)
 	total := 0
 	buf := make([][]byte, 0, windowCap)
@@ -75,12 +77,9 @@ func allocate(ctx context.Context) int {
 				buf = buf[:0] // drop references: the window becomes garbage
 			}
 		}
-		// Throttle so the heap sawtooths through a watchable number of GC
-		// cycles rather than thrashing the collector millions of times.
-		select {
-		case <-ctx.Done():
+		total += int(busyFor(pace)) // pace allocation with CPU work, not sleep
+		if ctx.Err() != nil {
 			return total
-		case <-time.After(pause):
 		}
 	}
 }
