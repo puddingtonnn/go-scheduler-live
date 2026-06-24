@@ -1,0 +1,114 @@
+import { describe, it, expect } from 'vitest'
+import { stateAt } from './state'
+import { nextTime, clamp } from './player'
+import { NO_RESOURCE, type Timeline, type TimelineEvent } from '../model/timeline'
+
+function tl(events: TimelineEvent[], numProcs = 2): Timeline {
+  return { meta: { scenario: 't', numProcs, durationNs: 1000, goroutines: [] }, events }
+}
+
+describe('stateAt', () => {
+  it('places a running goroutine on its P and leaves others idle', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 1 },
+      ]),
+      2,
+    )
+    expect(s.goroutines.get(5)?.state).toBe('running')
+    expect(s.goroutines.get(5)?.pid).toBe(1)
+    expect(s.procs[1].gid).toBe(5)
+    expect(s.procs[0].gid).toBe(NO_RESOURCE)
+  })
+
+  it('ignores events after t', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0 },
+        { t: 10, type: 'g_run_start', gid: 5, pid: 1 },
+      ]),
+      5,
+    )
+    expect(s.goroutines.get(5)?.state).toBe('runnable')
+    expect(s.procs[1].gid).toBe(NO_RESOURCE)
+  })
+
+  it('frees the P and records the reason when a goroutine blocks', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 0 },
+        { t: 3, type: 'g_block', gid: 5, pid: 0, reason: 'chan receive' },
+      ]),
+      3,
+    )
+    const v = s.goroutines.get(5)!
+    expect(v.state).toBe('waiting')
+    expect(v.reason).toBe('chan receive')
+    expect(s.procs[0].gid).toBe(NO_RESOURCE)
+  })
+
+  it('carries the stolen flag onto the running view', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 7, pid: 0 },
+        { t: 2, type: 'g_run_start', gid: 7, pid: 1, stolen: true },
+      ]),
+      2,
+    )
+    expect(s.goroutines.get(7)?.stolen).toBe(true)
+  })
+
+  it('marks a goroutine dead after exit and frees its P', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 0 },
+        { t: 3, type: 'g_exit', gid: 5, pid: 0 },
+      ]),
+      3,
+    )
+    expect(s.goroutines.get(5)?.state).toBe('dead')
+    expect(s.procs[0].gid).toBe(NO_RESOURCE)
+  })
+
+  it('tracks active GC ranges and heap metrics', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world' },
+        { t: 2, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, name: '/gc/heap/goal:bytes', value: 1000 },
+        { t: 3, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, name: '/memory/classes/heap/objects:bytes', value: 512 },
+      ]),
+      5,
+    )
+    expect(s.gcActive).toContain('stop-the-world')
+    expect(s.heapGoal).toBe(1000)
+    expect(s.heapLive).toBe(512)
+  })
+})
+
+describe('nextTime', () => {
+  it('clamps to [0, duration]', () => {
+    expect(nextTime(0, -100, 1000, 1)).toBe(0)
+    expect(nextTime(999, 1e9, 1000, 1)).toBe(1000)
+  })
+
+  it('scales with speed', () => {
+    const a = nextTime(0, 100, 20000, 1)
+    const b = nextTime(0, 100, 20000, 2)
+    expect(b).toBeCloseTo(a * 2)
+  })
+
+  it('returns 0 for a zero-duration timeline', () => {
+    expect(nextTime(5, 100, 0, 1)).toBe(0)
+  })
+})
+
+describe('clamp', () => {
+  it('bounds values', () => {
+    expect(clamp(-1, 0, 10)).toBe(0)
+    expect(clamp(5, 0, 10)).toBe(5)
+    expect(clamp(11, 0, 10)).toBe(10)
+  })
+})
