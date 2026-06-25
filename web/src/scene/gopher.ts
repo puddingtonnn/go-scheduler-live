@@ -12,6 +12,10 @@ export interface Gopher {
   setLabel(text: string): void
   setTagColor(hex: string): void
   showLabel(v: boolean): void
+  /** offset the sprite within the container (bob / sway / steal arc lift). */
+  setOffset(dx: number, dy: number): void
+  /** container alpha, for the dead poof. */
+  setAlpha(a: number): void
 }
 
 export function makeGopher(): Gopher {
@@ -61,6 +65,12 @@ export function makeGopher(): Gopher {
     },
     showLabel: (v) => {
       tag.visible = v
+    },
+    setOffset: (dx, dy) => {
+      sprite.position.set(dx, dy)
+    },
+    setAlpha: (a) => {
+      container.alpha = a
     },
   }
 }

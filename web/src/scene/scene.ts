@@ -8,6 +8,7 @@ import { makeGopher, type Gopher } from './gopher'
 
 const STW_HOLD_MS = 700
 const PULSE_MS = 900
+const POOF_MS = 320
 
 const STATE_RU: Record<GState, string> = {
   running: 'бежит',
@@ -17,6 +18,8 @@ const STATE_RU: Record<GState, string> = {
   dead: 'завершилась',
 }
 
+type AnimKind = GState | 'frozen'
+
 interface Rec {
   g: Gopher
   tx: number
@@ -24,25 +27,50 @@ interface Rec {
   pulse: number
   wasSteal: boolean
   view?: GoroutineView
-  base: Texture // current per-state (or frozen) body texture
+  kind: AnimKind // which frame set to cycle
+  phase: number // per-gopher animation phase offset (de-syncs the crowd)
+  dying: number // dead-poof timer (ms remaining); 0 = alive
 }
 
+// bakeTextures bakes a small frame atlas per animated state once; the scene
+// cycles the frames on a wall clock (see FPS) with a per-gopher phase offset.
+// Continuous motion that needs no new texture (bob/sway/breathe/steal arc) is
+// applied as a sprite offset in tick().
 function bakeTextures() {
   const t = (o: GopherOpts): Texture => {
     const tx = Texture.from(gopherCanvas(o))
     tx.source.scaleMode = 'nearest'
     return tx
   }
+  const arr = (os: GopherOpts[]): Texture[] => os.map(t)
   return {
-    running: t({ state: 'running', work: true, armPhase: 1, laptop: true, screenLit: true }),
-    runnable: t({ state: 'runnable' }),
-    waiting: t({ state: 'waiting', zzz: true, zt: 0.3, blink: true }),
-    syscall: t({ state: 'syscall', flip: true, dots: 2 }),
-    dead: t({ state: 'dead', dead: true }),
-    steal: t({ state: 'steal', run: true, bang: true, ring: 12, ringA: 1, motion: true }),
+    running: arr([
+      { state: 'running', work: true, armPhase: 1, laptop: true, screenLit: true },
+      { state: 'running', work: true, armPhase: -1, laptop: true, screenLit: false },
+    ]),
+    runnable: arr([{ state: 'runnable' }]),
+    waiting: arr([
+      { state: 'waiting', zzz: true, zt: 0, blink: true },
+      { state: 'waiting', zzz: true, zt: 0.34, blink: true },
+      { state: 'waiting', zzz: true, zt: 0.68, blink: true },
+    ]),
+    syscall: arr([
+      { state: 'syscall', flip: true, dots: 1 },
+      { state: 'syscall', flip: true, dots: 2 },
+      { state: 'syscall', flip: true, dots: 3 },
+    ]),
+    dead: arr([{ state: 'dead', dead: true }]),
+    steal: arr([
+      { state: 'steal', run: true, armPhase: 1, bang: true, ring: 8, ringA: 1, motion: true },
+      { state: 'steal', run: true, armPhase: -1, bang: true, ring: 14, ringA: 0.7, motion: true },
+      { state: 'steal', run: true, armPhase: 1, bang: true, ring: 20, ringA: 0.35, motion: true },
+    ]),
     frozen: t({ frozen: true, bang: true }),
   }
 }
+
+// animation frames-per-second per state (0 = single frame, no cycling).
+const FPS: Record<AnimKind, number> = { running: 8, runnable: 0, waiting: 4, syscall: 3, dead: 0, frozen: 0 }
 
 // Scene renders the isometric pixel-art world: a faint floor grid + N P-stations
 // in a base-sized world container scaled to fit, with one gopher Sprite per
@@ -63,6 +91,7 @@ export class Scene {
   private showIds = true
   private stwHold = 0
   private wasStw = false
+  private animT = 0
   private tooltip!: HTMLDivElement
   // current world→canvas transform (set by fit()); canvas fills the stage at 0,0
   // so these map a base-world point straight to stage px for DOM overlays.
@@ -147,20 +176,26 @@ export class Scene {
     for (const [gid, p] of places) {
       let rec = this.gophers.get(gid)
       if (!rec) rec = this.spawn(gid, p.x, p.y)
+      rec.dying = 0
       rec.tx = p.x
       rec.ty = p.y
       const v = world.goroutines.get(gid)!
       const prevState = rec.view?.state
       rec.view = v
       if (v.state !== prevState) rec.g.setTagColor(stateColors(v.state)[0])
-      rec.base = frozen ? this.tex.frozen : this.tex[v.state]
-      rec.g.setTexture(rec.pulse > 0 ? this.tex.steal : rec.base)
+      rec.kind = frozen ? 'frozen' : v.state
       const stealNow = v.state === 'running' && v.stolen
       if (stealNow && !rec.wasSteal) rec.pulse = 1
       rec.wasSteal = stealNow
     }
+    // gophers no longer placed: dead ones poof out (tick), the rest (capped /
+    // gone) are removed immediately.
     for (const [gid, rec] of this.gophers) {
-      if (!places.has(gid)) {
+      if (places.has(gid) || rec.dying > 0) continue
+      if (world.goroutines.get(gid)?.state === 'dead') {
+        rec.dying = POOF_MS
+        rec.kind = 'dead'
+      } else {
         rec.g.container.destroy()
         this.gophers.delete(gid)
       }
@@ -182,7 +217,7 @@ export class Scene {
     c.on('pointerout', () => this.hideTip())
 
     this.gopherLayer.addChild(c)
-    const rec: Rec = { g, tx: x, ty: y, pulse: 0, wasSteal: false, base: this.tex.runnable }
+    const rec: Rec = { g, tx: x, ty: y, pulse: 0, wasSteal: false, kind: 'runnable', phase: (gid % 17) * 0.37, dying: 0 }
     this.gophers.set(gid, rec)
     return rec
   }
@@ -196,20 +231,77 @@ export class Scene {
 
   private tick(dtMs: number): void {
     const k = 1 - Math.pow(0.0015, dtMs / 1000)
+    this.animT += dtMs / 1000
     if (this.stwHold > 0) this.stwHold = Math.max(0, this.stwHold - dtMs / STW_HOLD_MS)
-    for (const rec of this.gophers.values()) {
+    for (const [gid, rec] of this.gophers) {
       const c = rec.g.container
+
+      // dead poof: fade + grow, then remove
+      if (rec.dying > 0) {
+        rec.dying -= dtMs
+        const a = Math.max(0, rec.dying / POOF_MS)
+        rec.g.setAlpha(a)
+        c.scale.set(1 + (1 - a) * 0.5)
+        rec.g.setTexture(this.tex.dead[0])
+        if (rec.dying <= 0) {
+          c.destroy()
+          this.gophers.delete(gid)
+        }
+        continue
+      }
+
+      // ease toward target position; depth-sort by screen-y
       c.x += (rec.tx - c.x) * k
       c.y += (rec.ty - c.y) * k
       c.zIndex = c.y
-      if (rec.pulse > 0) {
+
+      // steal pop: red frames, scale pop, arc lift along the in-flight ease
+      if (rec.pulse > 0 && !(this.stwHold > 0)) {
         rec.pulse = Math.max(0, rec.pulse - dtMs / PULSE_MS)
-        c.scale.set(1 + 0.4 * rec.pulse)
-        rec.g.setTexture(this.tex.steal) // red steal sprite during the pop
-      } else {
-        if (c.scale.x !== 1) c.scale.set(1)
-        rec.g.setTexture(rec.base)
+        const prog = 1 - rec.pulse
+        c.scale.set(1 + 0.35 * rec.pulse)
+        rec.g.setOffset(0, -26 * Math.sin(Math.PI * prog))
+        const f = Math.min(this.tex.steal.length - 1, Math.floor(prog * this.tex.steal.length))
+        rec.g.setTexture(this.tex.steal[f])
+        continue
       }
+
+      if (c.scale.x !== 1) c.scale.set(1)
+      this.applyMotion(rec)
+      rec.g.setTexture(this.frameFor(rec))
+    }
+  }
+
+  // frameFor picks the current atlas frame for a gopher's state on the wall clock.
+  private frameFor(rec: Rec): Texture {
+    if (rec.kind === 'frozen') return this.tex.frozen
+    const frames = this.tex[rec.kind]
+    const fps = FPS[rec.kind]
+    if (fps <= 0 || frames.length <= 1) return frames[0]
+    const i = Math.floor(this.animT * fps + rec.phase) % frames.length
+    return frames[i]
+  }
+
+  // applyMotion sets the per-state continuous sprite offset (no new texture):
+  // running bobs its head, runnable sways, waiting breathes.
+  private applyMotion(rec: Rec): void {
+    const tphase = this.animT + rec.phase
+    if (rec.kind === 'frozen') {
+      rec.g.setOffset(0, 0)
+      return
+    }
+    switch (rec.kind) {
+      case 'running':
+        rec.g.setOffset(0, -Math.abs(Math.sin(tphase * 4.5)) * 1.6)
+        break
+      case 'runnable':
+        rec.g.setOffset(Math.sin(tphase * 2.2) * 1.2, 0)
+        break
+      case 'waiting':
+        rec.g.setOffset(0, Math.sin(tphase * 2) * 0.8)
+        break
+      default:
+        rec.g.setOffset(0, 0)
     }
   }
 
