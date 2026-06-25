@@ -34,13 +34,13 @@ function bakeTextures() {
     return tx
   }
   return {
-    running: t({ state: 'running', run: true }),
+    running: t({ state: 'running', work: true, armPhase: 1 }),
     runnable: t({ state: 'runnable' }),
-    waiting: t({ state: 'waiting', zzz: true, blink: true }),
-    syscall: t({ state: 'syscall', flip: true, dots: true }),
-    dead: t({ state: 'dead' }),
-    steal: t({ state: 'steal', run: true, bang: true, ring: 18 }),
-    frozen: t({ frozen: true }),
+    waiting: t({ state: 'waiting', zzz: true, zt: 0.3, blink: true }),
+    syscall: t({ state: 'syscall', flip: true, dots: 2 }),
+    dead: t({ state: 'dead', dead: true }),
+    steal: t({ state: 'steal', run: true, bang: true, ring: 12, ringA: 1, motion: true }),
+    frozen: t({ frozen: true, bang: true }),
   }
 }
 

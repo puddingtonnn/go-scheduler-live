@@ -23,6 +23,7 @@ export const PAL = {
   cpu: '#1b2030',
   cpuHi: '#2a3147',
   lampW: '#f0b44b',
+  screen: '#7ef0c0',
   cream: '#f3e2c3',
   creamD: '#cdb487',
   out: '#16131f',
