@@ -1,12 +1,16 @@
 import type { WorldState } from '../player/state'
 import { stationPositions, type Pt } from './iso'
 
-// placeIso maps each live goroutine to a position in the base (460x248) world,
-// following the handoff composition: running gophers stand on their P station,
-// runnable ones pile in the local queue under that P (or the global queue at
+// placeIso maps each live goroutine to a position in the base (576x330) world,
+// following the v2 handoff composition: running gophers sit on their P station,
+// runnable ones grid-pack in the local queue under that P (or the global queue at
 // left), waiting/syscall cluster in their bottom zones. Pure → unit-tested.
-// Gophers overlap (spacing < sprite width) on purpose — the cozy floor796 pile,
-// resolved by depth-sort in the scene.
+//
+// Each zone renders at most CAP gophers in a clean staggered grid; the surplus is
+// counted (see zoneTotals) and surfaced as a "+N" pill by the chrome, so a queue
+// of 50 stays legible instead of overflowing the world. This matters because all
+// goroutines spawned by one goroutine land on the same P's local runq (the real
+// runtime's behavior) until work-stealing drains them.
 
 export interface Rect {
   x: number
@@ -15,17 +19,66 @@ export interface Rect {
   h: number
 }
 
-export const WAITING: Rect = { x: 150, y: 186, w: 152, h: 58 }
-export const SYSCALL: Rect = { x: 330, y: 186, w: 120, h: 58 }
-export const GLOBAL: Rect = { x: 14, y: 150, w: 44, h: 92 }
-const PACK = 13
+// Bottom-zone rectangles, a clean left-to-right row [global | waiting | syscall]
+// (staggered grids pack within these; chrome anchors its labels to them). The
+// global run queue lives here rather than at the far left so it never collides
+// with P0's local queue (where one goroutine's whole spawn lands). Sized for the
+// 576x330 base world.
+export const GLOBAL: Rect = { x: 20, y: 230, w: 158, h: 92 }
+export const WAITING: Rect = { x: 198, y: 230, w: 150, h: 92 }
+export const SYSCALL: Rect = { x: 392, y: 230, w: 150, h: 92 }
 
-function packGrid(r: Rect, i: number, spacing: number): Pt {
-  const cols = Math.max(1, Math.floor(r.w / spacing))
+// Per-zone render caps. Surplus goroutines are counted, not placed (see zoneTotals).
+export const CAPS = { local: 10, global: 16, waiting: 18, syscall: 14 } as const
+
+const PACK_DX = 18
+const PACK_DY = 15
+
+// packStagger lays index i into a staggered grid filling the rect by columns,
+// wrapping into half-offset rows.
+function packStagger(r: Rect, i: number): Pt {
+  const cols = Math.max(1, Math.floor((r.w - 9) / PACK_DX))
+  const row = Math.floor(i / cols)
+  const col = i % cols
   return {
-    x: r.x + spacing / 2 + (i % cols) * spacing,
-    y: r.y + spacing / 2 + Math.floor(i / cols) * spacing,
+    x: r.x + 8 + col * PACK_DX + (row % 2) * (PACK_DX / 2),
+    y: r.y + 10 + row * PACK_DY,
   }
+}
+
+// localPos stacks a P's local run-queue toward the viewer (below the platform),
+// two abreast with a half-step stagger per row.
+function localPos(st: Pt, i: number): Pt {
+  const col = i % 2
+  const row = Math.floor(i / 2)
+  return { x: st.x - 7 + col * 14 + (row % 2) * 7, y: st.y + 40 + row * 13 }
+}
+
+export interface ZoneTotals {
+  /** runnable count per P local queue (index = pid). */
+  local: number[]
+  global: number
+  waiting: number
+  syscall: number
+}
+
+// zoneTotals counts goroutines per zone (uncapped) so the chrome can show how
+// many are hidden beyond the render caps. Pure; mirrors placeIso's bucketing.
+export function zoneTotals(world: WorldState, numProcs: number): ZoneTotals {
+  const local = Array.from({ length: numProcs }, () => 0)
+  let global = 0
+  let waiting = 0
+  let syscall = 0
+  for (const v of world.goroutines.values()) {
+    const onP = v.pid >= 0 && v.pid < numProcs
+    if (v.state === 'waiting') waiting++
+    else if (v.state === 'syscall') syscall++
+    else if (v.state === 'runnable') {
+      if (onP) local[v.pid]++
+      else global++
+    }
+  }
+  return { local, global, waiting, syscall }
 }
 
 export function placeIso(world: WorldState, numProcs: number): Map<number, Pt> {
@@ -47,20 +100,20 @@ export function placeIso(world: WorldState, numProcs: number): Map<number, Pt> {
         break
       }
       case 'syscall':
-        out.set(gid, packGrid(SYSCALL, sysN++, PACK))
+        if (sysN < CAPS.syscall) out.set(gid, packStagger(SYSCALL, sysN))
+        sysN++
         break
       case 'waiting':
-        out.set(gid, packGrid(WAITING, waitN++, PACK))
+        if (waitN < CAPS.waiting) out.set(gid, packStagger(WAITING, waitN))
+        waitN++
         break
       case 'runnable': {
         if (onP) {
           const i = localN[v.pid]++
-          const st = stations[v.pid]
-          // stack down-left toward the viewer, wrapping into left columns
-          out.set(gid, { x: st.x - 4 - Math.floor(i / 5) * 11, y: st.y + 28 + (i % 5) * 11 })
+          if (i < CAPS.local) out.set(gid, localPos(stations[v.pid], i))
         } else {
-          const i = globalN++
-          out.set(gid, { x: GLOBAL.x + 8 + Math.floor(i / 7) * 14, y: GLOBAL.y + 6 + (i % 7) * 12 })
+          if (globalN < CAPS.global) out.set(gid, packStagger(GLOBAL, globalN))
+          globalN++
         }
         break
       }

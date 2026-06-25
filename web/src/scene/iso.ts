@@ -1,17 +1,19 @@
 import { Graphics } from 'pixi.js'
 import { PAL } from './palette'
 
-// Isometric world geometry, ported from the design handoff reference
+// Isometric world geometry, ported from the v2 design handoff reference
 // (tile / pStation / floor grid, drawScene composition coords). Everything is
-// laid out in a fixed "base" world (460x248); the scene scales this container to
-// fit the canvas, so these numbers match the reference 1:1.
+// laid out in a fixed "base" world (576x330); the scene scales this container to
+// fit the canvas, so these numbers match the reference 1:1. The smaller gopher
+// relative to this larger world leaves room for id tags above heads and lets the
+// zones grid-pack many goroutines.
 
-export const TILE_W = 24
-export const TILE_H = 12
-export const WORLD_W = 460
-export const WORLD_H = 248
+export const TILE_W = 26
+export const TILE_H = 13
+export const WORLD_W = 576
+export const WORLD_H = 330
 export const FLOOR_OX = WORLD_W / 2
-export const FLOOR_OY = 10
+export const FLOOR_OY = 8
 
 export interface Pt {
   x: number
@@ -33,8 +35,8 @@ function tile(g: Graphics, cx: number, cy: number, tw: number, th: number, ht: n
 
 // drawGrid strokes the faint full-world iso floor grid (caller sets alpha).
 export function drawGrid(g: Graphics): void {
-  for (let gy = -2; gy < 26; gy++) {
-    for (let gx = -6; gx < 22; gx++) {
+  for (let gy = -2; gy < 30; gy++) {
+    for (let gx = -8; gx < 26; gx++) {
       const sx = FLOOR_OX + ((gx - gy) * TILE_W) / 2
       const sy = FLOOR_OY + ((gx + gy) * TILE_H) / 2
       if (sx < -TILE_W || sx > WORLD_W + TILE_W || sy < -TILE_H || sy > WORLD_H + TILE_H) continue
@@ -46,26 +48,34 @@ export function drawGrid(g: Graphics): void {
   }
 }
 
-// stationPositions returns the screen-space centers of the N P-stations.
+// stationPositions returns the screen-space centers of the N P-stations, spread
+// across the top with a slight zig-zag in y.
 export function stationPositions(numProcs: number): Pt[] {
-  const px0 = 78
-  const dx = Math.min(118, (WORLD_W - 150) / Math.max(numProcs, 1))
-  const py = 70
-  return Array.from({ length: numProcs }, (_, i) => ({ x: px0 + i * dx, y: py + (i % 2) * 6 }))
+  const margin = 64
+  const span = WORLD_W - margin * 2
+  const dx = numProcs > 1 ? span / (numProcs - 1) : 0
+  const py = 58
+  return Array.from({ length: numProcs }, (_, i) => ({
+    x: Math.round(margin + (numProcs > 1 ? i * dx : span / 2)),
+    y: py + (i % 2) * 5,
+  }))
 }
 
-// drawStation draws one raised P platform with its CPU tower + status lamp.
+// drawStation draws one raised P platform with its CPU tower + status lamp at the
+// back-left. The running gopher (with its laptop baked in) is a sprite placed on
+// top by the scene, so it depth-sorts correctly against the local queue.
 export function drawStation(g: Graphics, sx: number, sy: number): void {
-  const tw = 44
-  const th = 22
-  const ht = 8
+  const tw = 46
+  const th = 23
+  const ht = 9
   tile(g, sx, sy, tw, th, ht, PAL.platT, PAL.platL, PAL.platR)
   g.moveTo(sx - tw / 2, sy)
     .lineTo(sx, sy - th / 2)
     .lineTo(sx + tw / 2, sy)
     .stroke({ width: 1, color: PAL.platEdge })
-  g.rect(sx - 4, sy - th / 2 - 12, 9, 12).fill(PAL.cpu)
-  g.rect(sx - 4, sy - th / 2 - 12, 9, 1).fill(PAL.cpuHi)
-  g.rect(sx - 2, sy - th / 2 - 9, 2, 2).fill(PAL.running)
-  g.rect(sx + 1, sy - th / 2 - 6, 2, 2).fill(PAL.lampW)
+  // CPU tower at back-left with status lamp
+  g.rect(sx - tw / 2 + 4, sy - th / 2 - 13, 9, 13).fill(PAL.cpu)
+  g.rect(sx - tw / 2 + 4, sy - th / 2 - 13, 9, 1).fill(PAL.cpuHi)
+  g.rect(sx - tw / 2 + 6, sy - th / 2 - 10, 2, 2).fill(PAL.running)
+  g.rect(sx - tw / 2 + 6, sy - th / 2 - 6, 2, 2).fill(PAL.lampW)
 }

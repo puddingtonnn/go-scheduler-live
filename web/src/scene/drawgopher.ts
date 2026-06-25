@@ -36,6 +36,10 @@ export interface GopherOpts {
   ring?: number | null
   /** steal ring alpha [0,1]. */
   ringA?: number
+  /** draw a laptop in front of the body (running-on-a-P "typing" prop). */
+  laptop?: boolean
+  /** laptop screen lit (true) or dim (false) — flicker frames. */
+  screenLit?: boolean
   /** id chip baked above the head (sprite-sheet/demo only; live scene uses Text). */
   tag?: string
   body?: string
@@ -287,6 +291,17 @@ export function drawGopher(ctx: Ctx, ox0: number, oy0: number, u: number, o: Gop
   put(9, 13, 1, 3, P.out)
   put(15, 13, 1, 3, P.out)
   put(10, 16, 5, 1, P.out)
+
+  // laptop in front of the body (running gopher "sits and types" — baked into the
+  // running texture so it depth-sorts with the gopher, not behind it).
+  if (o.laptop) {
+    const lx = ox + 5 * u
+    const ly = oy + 22 * u
+    px(ctx, lx, ly, 14 * u, 3 * u, P.cpu)
+    px(ctx, lx + 1 * u, ly - 5 * u, 12 * u, 5 * u, '#20283c')
+    const sc = o.frozen ? P.froD : o.screenLit === false ? shade(P.screen, -40) : P.screen
+    px(ctx, lx + 2 * u, ly - 4 * u, 10 * u, 3 * u, sc)
+  }
 
   // overlays (toggled by the scene per state / per animation frame)
   if (o.zzz) {

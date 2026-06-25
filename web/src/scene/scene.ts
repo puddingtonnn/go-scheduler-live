@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Texture, type FederatedPointerEvent } from 'pixi.js'
 import type { GState, GoroutineView, WorldState } from '../player/state'
-import { PAL } from './palette'
+import { PAL, stateColors } from './palette'
 import { gopherCanvas, type GopherOpts } from './drawgopher'
 import { drawGrid, drawStation, stationPositions, WORLD_W, WORLD_H, type Pt } from './iso'
 import { placeIso } from './layout'
@@ -34,7 +34,7 @@ function bakeTextures() {
     return tx
   }
   return {
-    running: t({ state: 'running', work: true, armPhase: 1 }),
+    running: t({ state: 'running', work: true, armPhase: 1, laptop: true, screenLit: true }),
     runnable: t({ state: 'runnable' }),
     waiting: t({ state: 'waiting', zzz: true, zt: 0.3, blink: true }),
     syscall: t({ state: 'syscall', flip: true, dots: 2 }),
@@ -60,7 +60,7 @@ export class Scene {
   private readonly gopherLayer = new Container()
   private readonly stwOverlay = new Graphics()
   private readonly tex = bakeTextures()
-  private showIds = false
+  private showIds = true
   private stwHold = 0
   private wasStw = false
   private tooltip!: HTMLDivElement
@@ -150,7 +150,9 @@ export class Scene {
       rec.tx = p.x
       rec.ty = p.y
       const v = world.goroutines.get(gid)!
+      const prevState = rec.view?.state
       rec.view = v
+      if (v.state !== prevState) rec.g.setTagColor(stateColors(v.state)[0])
       rec.base = frozen ? this.tex.frozen : this.tex[v.state]
       rec.g.setTexture(rec.pulse > 0 ? this.tex.steal : rec.base)
       const stealNow = v.state === 'running' && v.stolen
