@@ -1,4 +1,5 @@
 import type { TimelineEvent } from '../model/timeline'
+import { stealBurst, pluralGor } from './steal'
 
 // narrate returns a short Russian sentence describing the most notable event in
 // the trace just before t, for the "what's happening" caption. Empty string
@@ -15,6 +16,13 @@ export function narrate(events: TimelineEvent[], t: number): string {
     // Iterating in time order, ">=" keeps the latest among equally-salient events.
     if (d && (best === null || d.sal >= best.sal)) best = d
   }
+  // Steals are narrated as a batch (P took N), reflecting that the runtime grabs
+  // ~half a victim's queue at once, not the per-goroutine flag we reconstruct.
+  const burst = stealBurst(events, t, WINDOW_NS)
+  if (burst) {
+    const d = { sal: 3, text: `P${burst.pid} забрал ${burst.count} ${pluralGor(burst.count)}` }
+    if (best === null || d.sal >= best.sal) best = d
+  }
   return best?.text ?? ''
 }
 
@@ -24,8 +32,6 @@ function describe(e: TimelineEvent): { sal: number; text: string } | null {
       if (e.name?.includes('stop-the-world')) return { sal: 5, text: 'Stop-the-world: все горутины замерли' }
       if (e.name?.includes('mark phase')) return { sal: 4, text: 'GC: фаза разметки (concurrent mark)' }
       return null
-    case 'g_run_start':
-      return e.stolen ? { sal: 3, text: `P${e.pid} украл G${e.gid}` } : null
     case 'g_block':
       return { sal: 2, text: `G${e.gid} заблокирован: ${e.reason ?? '?'}` }
     case 'g_exit':

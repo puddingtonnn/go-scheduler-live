@@ -328,6 +328,7 @@ function formatTip(gid: number, view: GoroutineView): string {
   let s = `G${gid} • ${STATE_RU[view.state]}`
   if (view.state === 'waiting' && view.reason) s += `: ${view.reason}`
   else if ((view.state === 'running' || view.state === 'syscall') && view.pid >= 0) s += ` (P${view.pid})`
+  if (view.stolen && view.state === 'running') s += ' · украдена (реконстр.)'
   return s
 }
 

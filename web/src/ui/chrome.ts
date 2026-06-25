@@ -3,7 +3,7 @@ import type { TimelineEvent } from '../model/timeline'
 import type { Scene } from '../scene/scene'
 import { PAL } from '../scene/palette'
 import { stationPositions, type Pt } from '../scene/iso'
-import { GLOBAL, WAITING, SYSCALL } from '../scene/layout'
+import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals } from '../scene/layout'
 import { narrate } from '../player/narrate'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
 
@@ -41,10 +41,11 @@ export class Chrome {
   private readonly banner: HTMLDivElement
   private readonly waitSub: HTMLSpanElement
   private readonly pills: Record<ZoneKey, HTMLDivElement>
+  private readonly over: Record<ZoneKey, HTMLSpanElement>
   private anchors: Record<ZoneKey, Pt>
 
   // last-rendered values, to skip per-frame DOM writes when nothing changed.
-  private last = { gc: '', heap: -1, cap: '', wait: '', stw: false }
+  private last = { gc: '', heap: -1, cap: '', wait: '', stw: false, over: '' }
 
   constructor(stage: HTMLElement) {
     // --- header ---
@@ -73,25 +74,40 @@ export class Chrome {
       item.append(dot, document.createTextNode(name))
       this.legend.append(item)
     }
+    // honest footnote: what the trace gives vs what we reconstruct.
+    this.legend.append(
+      el(
+        'div',
+        'legend-note',
+        'Локальные очереди и кража — реконструкция из трейса: простаивающий P крадёт ≈половину чужой локальной очереди; mark-assist отдельно не показан.',
+      ),
+    )
 
-    // --- zone pills (positioned in layout() via the scene transform) ---
-    const pill = (text: string, color: string, center: boolean): HTMLDivElement => {
+    // --- zone pills (positioned in layout() via the scene transform). Each pill
+    // carries an "over" span for the "+N" count of goroutines beyond the render
+    // cap, so a queue of 50 stays legible while still telling its true size. ---
+    const over: Partial<Record<ZoneKey, HTMLSpanElement>> = {}
+    const pill = (key: ZoneKey, text: string, color: string, center: boolean): HTMLDivElement => {
       const e = el('div', center ? 'zone-pill center' : 'zone-pill')
       e.style.color = color
-      e.textContent = text
+      e.append(document.createTextNode(text))
+      const ov = el('span', 'zone-over')
+      e.append(ov)
+      over[key] = ov
       stage.append(e)
       return e
     }
-    const waiting = pill('Ожидание', PAL.waiting, true)
+    const waiting = pill('waiting', 'Ожидание', PAL.waiting, true)
     this.waitSub = el('span', 'zone-sub')
     waiting.append(this.waitSub)
     this.pills = {
-      pstation: pill('P-станции · выполнение', PAL.running, true),
-      local: pill('локальная очередь', PAL.runnable, true),
-      global: pill('Глобальная очередь', PAL.runnable, false),
+      pstation: pill('pstation', 'P-станции · выполнение', PAL.running, true),
+      local: pill('local', 'локальная очередь', PAL.runnable, true),
+      global: pill('global', 'Глобальная очередь', PAL.runnable, false),
       waiting,
-      syscall: pill('Syscall', PAL.syscall, true),
+      syscall: pill('syscall', 'Syscall', PAL.syscall, true),
     }
+    this.over = over as Record<ZoneKey, HTMLSpanElement>
 
     // --- caption + STW banner (stage-relative, not world-tracked) ---
     this.caption = el('div', 'caption')
@@ -170,6 +186,24 @@ export class Chrome {
     if (stw !== this.last.stw) {
       this.last.stw = stw
       this.banner.style.display = stw ? 'block' : 'none'
+    }
+
+    // "+N" badges: goroutines in a zone beyond its render cap (local summed over Ps).
+    const tot = zoneTotals(world, this.numProcs)
+    const localOver = tot.local.reduce((s, n) => s + Math.max(0, n - CAPS.local), 0)
+    const globalOver = Math.max(0, tot.global - CAPS.global)
+    const waitOver = Math.max(0, tot.waiting - CAPS.waiting)
+    const sysOver = Math.max(0, tot.syscall - CAPS.syscall)
+    const overKey = `${localOver}|${globalOver}|${waitOver}|${sysOver}`
+    if (overKey !== this.last.over) {
+      this.last.over = overKey
+      const set = (k: ZoneKey, n: number): void => {
+        this.over[k].textContent = n > 0 ? `+${n}` : ''
+      }
+      set('local', localOver)
+      set('global', globalOver)
+      set('waiting', waitOver)
+      set('syscall', sysOver)
     }
   }
 

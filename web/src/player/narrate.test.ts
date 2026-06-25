@@ -16,8 +16,17 @@ describe('narrate', () => {
     expect(narrate(events, 101)).toContain('Stop-the-world')
   })
 
-  it('describes a steal', () => {
-    expect(narrate([ev(50, 'g_run_start', { gid: 12, pid: 3, stolen: true })], 50)).toBe('P3 украл G12')
+  it('describes a steal as a batch (P took N)', () => {
+    expect(narrate([ev(50, 'g_run_start', { gid: 12, pid: 3, stolen: true })], 50)).toBe('P3 забрал 1 горутину')
+  })
+
+  it('aggregates several steals onto the same P', () => {
+    const events = [
+      ev(48, 'g_run_start', { gid: 10, pid: 2, stolen: true }),
+      ev(49, 'g_run_start', { gid: 11, pid: 2, stolen: true }),
+      ev(50, 'g_run_start', { gid: 12, pid: 2, stolen: true }),
+    ]
+    expect(narrate(events, 50)).toBe('P2 забрал 3 горутины')
   })
 
   it('describes a block with its reason', () => {
