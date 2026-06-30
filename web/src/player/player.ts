@@ -74,8 +74,10 @@ export class Player {
     this.emit()
   }
 
-  // step jumps to the next event time strictly after the current position.
+  // step pauses, then jumps to the next event time strictly after the current
+  // position (without pausing, the RAF loop would immediately advance past it).
   step(): void {
+    this.pause()
     const next = this.timeline.events.find((e) => e.t > this._t)
     this.seek(next ? next.t : this.duration)
   }

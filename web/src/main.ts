@@ -1,13 +1,13 @@
 import { fetchScenarios, fetchRun, type RunParams } from './api'
-import type { Timeline } from './model/timeline'
+import type { ScenarioInfo, Timeline } from './model/timeline'
 import { Player } from './player/player'
 import { Scene } from './scene/scene'
 import { Chrome } from './ui/chrome'
 import { Controls } from './controls'
 
-// Composition root: builds the DOM chrome (header + legend) around the canvas
-// stage and the control bar, then on each run fetches a Timeline, (re)configures
-// the scene, and drives both the scene and the chrome from a fresh virtual-clock
+// Composition root: builds the DOM chrome (header + GC strip + legend) around the
+// canvas stage and the control bar, then on each run fetches a Timeline,
+// (re)configures the scene + chrome, and drives both from a fresh virtual-clock
 // Player. The old player is paused so only one clock ticks.
 async function boot(): Promise<void> {
   const root = document.getElementById('app')
@@ -20,21 +20,38 @@ async function boot(): Promise<void> {
     return
   }
 
+  let scenarios: ScenarioInfo[]
+  try {
+    scenarios = await fetchScenarios()
+    if (!scenarios.length) throw new Error('сервер не вернул ни одного сценария')
+  } catch (e) {
+    showFatal(root, 'Не удалось загрузить сценарии', e)
+    return
+  }
+
   const stage = document.createElement('div')
   stage.className = 'stage'
   const chrome = new Chrome(stage)
-
-  const scenarios = await fetchScenarios()
+  const errorBox = document.createElement('div')
+  errorBox.className = 'app-error'
+  errorBox.style.display = 'none'
+  stage.append(errorBox)
 
   let scene: Scene | null = null
   let player: Player | null = null
   let timeline: Timeline | null = null
 
-  // header on top, canvas stage in the middle, legend then control bar below.
   root.append(chrome.header, stage, chrome.legend)
-  const controls = new Controls(root, scenarios, (p) => void run(p), () => scene?.toggleIds() ?? false)
+  const controls = new Controls(
+    root,
+    scenarios,
+    (p) => void run(p),
+    () => scene?.toggleIds() ?? false,
+    (info) => chrome.setScenario(info),
+  )
 
-  // Expose the current player/scene/timeline for the screenshot harness and debugging.
+  const intro = makeIntro(stage)
+
   ;(globalThis as Record<string, unknown>).gmp = {
     get player() {
       return player
@@ -47,8 +64,13 @@ async function boot(): Promise<void> {
     },
   }
 
+  function scenarioInfo(id: string): ScenarioInfo | undefined {
+    return scenarios.find((s) => s.id === id)
+  }
+
   async function run(params: RunParams): Promise<void> {
     controls.setLoading(true)
+    errorBox.style.display = 'none'
     try {
       const tl = await fetchRun(params)
       timeline = tl
@@ -60,8 +82,11 @@ async function boot(): Promise<void> {
       } else {
         scene.reset(tl.meta.numProcs)
       }
+      scene.loadTimeline(tl)
       chrome.setProcs(tl.meta.numProcs)
-      chrome.setEvents(tl.events)
+      chrome.setTimeline(tl)
+      chrome.setScenario(scenarioInfo(params.scenario))
+      intro.show(scenarioInfo(params.scenario))
 
       const sc = scene
       const p = new Player(tl)
@@ -75,20 +100,74 @@ async function boot(): Promise<void> {
       p.emit()
       p.play()
     } catch (e) {
-      stage.textContent = `Ошибка: ${e instanceof Error ? e.message : String(e)}`
+      errorBox.textContent = `Ошибка запуска: ${msg(e)}. Проверьте, что бэкенд запущен.`
+      errorBox.style.display = 'block'
     } finally {
       controls.setLoading(false)
     }
   }
 
-  await run({ scenario: scenarios[0].id, gomaxprocs: 4, goroutines: 50 })
+  await run({ scenario: scenarios[0].id, gomaxprocs: 4, goroutines: scenarios[0].params[0]?.default ?? 50 })
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault()
       player?.toggle()
+      controls.sync() // keyboard toggle doesn't emit a tick when pausing — sync the label
     }
   })
+}
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+// showFatal renders a blocking error card when the app can't even start (e.g. the
+// backend is down on first load) instead of leaving a blank page.
+function showFatal(root: HTMLElement, title: string, e: unknown): void {
+  const card = document.createElement('div')
+  card.className = 'fatal'
+  const h = document.createElement('div')
+  h.className = 'fatal-title'
+  h.textContent = title
+  const p = document.createElement('div')
+  p.className = 'fatal-msg'
+  p.textContent = `${msg(e)} — запустите бэкенд (go run ./cmd/server -addr :8085) и обновите страницу.`
+  const btn = document.createElement('button')
+  btn.textContent = 'Повторить'
+  btn.addEventListener('click', () => location.reload())
+  card.append(h, p, btn)
+  root.append(card)
+}
+
+// makeIntro builds a small dismissible "what am I looking at" card shown on each
+// new run, so a first-timer can parse the iso world (P = platform, G = gopher).
+function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): void } {
+  const card = document.createElement('div')
+  card.className = 'intro'
+  const title = document.createElement('div')
+  title.className = 'intro-title'
+  const body = document.createElement('div')
+  body.className = 'intro-body'
+  const close = document.createElement('button')
+  close.textContent = 'Понятно'
+  close.addEventListener('click', () => (card.style.display = 'none'))
+  card.append(title, body, close)
+  card.style.display = 'none'
+  stage.append(card)
+  let dismissed = false
+  return {
+    show(info) {
+      if (dismissed) return // only nag once per session
+      title.textContent = info?.title ?? 'Планировщик Go'
+      body.innerHTML =
+        '<b>P</b> — платформы (слоты выполнения, =GOMAXPROCS), <b>G</b> — горутины-гоферы. ' +
+        'Горутина бежит только стоя на P. Внизу — подпись, что происходит. ' +
+        (info?.description ? `<br><span class="intro-teach">${info.description}</span>` : '')
+      card.style.display = 'block'
+      close.addEventListener('click', () => (dismissed = true), { once: true })
+    },
+  }
 }
 
 void boot()

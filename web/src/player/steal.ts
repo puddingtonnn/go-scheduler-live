@@ -8,6 +8,10 @@ import type { TimelineEvent } from '../model/timeline'
 // honest reconstruction, not a recorded fact (the trace exposes neither local
 // queues nor steals).
 
+// Trailing window over which stolen run-starts are aggregated into a burst, shared
+// by the narration caption and the scene's destination-P glow so they agree.
+export const STEAL_LOOKBACK_NS = 8_000_000
+
 export interface StealBurst {
   pid: number
   count: number

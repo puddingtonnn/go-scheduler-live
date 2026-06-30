@@ -12,8 +12,10 @@ export interface Gopher {
   setLabel(text: string): void
   setTagColor(hex: string): void
   showLabel(v: boolean): void
-  /** offset the sprite within the container (bob / sway / steal arc lift). */
+  /** offset the sprite within the container (bob / sway). */
   setOffset(dx: number, dy: number): void
+  /** render scale of the sprite (feet stay planted); shrinks queue/zone crowds. */
+  setScale(s: number): void
   /** container alpha, for the dead poof. */
   setAlpha(a: number): void
 }
@@ -68,6 +70,10 @@ export function makeGopher(): Gopher {
     },
     setOffset: (dx, dy) => {
       sprite.position.set(dx, dy)
+    },
+    setScale: (s) => {
+      sprite.scale.set(s) // anchored at the feet, so the feet stay planted
+      tag.y = (HEAD_TOP_FROM_FEET - 5) * s // keep the id tag a proportional gap above the scaled head
     },
     setAlpha: (a) => {
       container.alpha = a

@@ -79,3 +79,72 @@ export function drawStation(g: Graphics, sx: number, sy: number): void {
   g.rect(sx - tw / 2 + 6, sy - th / 2 - 10, 2, 2).fill(PAL.running)
   g.rect(sx - tw / 2 + 6, sy - th / 2 - 6, 2, 2).fill(PAL.lampW)
 }
+
+// drawIdleMarker draws the floor796-style dashed outline on top of a P platform
+// that currently has no running goroutine — an idle P, available to be stolen
+// onto. Drawn into a per-frame fx layer by the scene (occupancy is dynamic).
+export function drawIdleMarker(g: Graphics, sx: number, sy: number): void {
+  const tw = 46
+  const th = 23
+  const top: [number, number][] = [
+    [sx, sy - th / 2],
+    [sx + tw / 2, sy],
+    [sx, sy + th / 2],
+    [sx - tw / 2, sy],
+  ]
+  // dashed rhombus edges (manual dashes — Pixi v8 has no global dash on poly)
+  for (let i = 0; i < 4; i++) {
+    const a = top[i]
+    const b = top[(i + 1) % 4]
+    const segs = 5
+    for (let s = 0; s < segs; s += 2) {
+      const t0 = s / segs
+      const t1 = (s + 1) / segs
+      g.moveTo(a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0)
+        .lineTo(a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1)
+        .stroke({ width: 1, color: PAL.steal, alpha: 0.55 })
+    }
+  }
+}
+
+// drawStationGlow draws a soft amber ring on a P platform that just received
+// stolen work — the aggregate steal cue (alpha fades in the scene's fx loop).
+export function drawStationGlow(g: Graphics, sx: number, sy: number, alpha: number): void {
+  const tw = 46
+  const th = 23
+  for (let i = 0; i < 3; i++) {
+    const k = 1 + i * 0.18
+    g.poly([sx, sy - (th / 2) * k, sx + (tw / 2) * k, sy, sx, sy + (th / 2) * k, sx - (tw / 2) * k, sy]).stroke({
+      width: 1.5,
+      color: PAL.runnable,
+      alpha: alpha * (0.5 - i * 0.12),
+    })
+  }
+}
+
+// drawZoneFloor draws a low-contrast iso "platter" under a bottom zone so a crowd
+// of gophers reads as a labelled bin even when full. topHex tints the surface so
+// each zone (waiting/syscall/global) owns its colour faintly.
+export function drawZoneFloor(g: Graphics, x: number, y: number, w: number, h: number, topHex: string): void {
+  g.roundRect(x, y, w, h, 4)
+    .fill({ color: topHex, alpha: 0.06 })
+    .stroke({ width: 1, color: topHex, alpha: 0.22 })
+}
+
+// drawProps scatters a couple of cozy floor796 props (warm crate, standing lamp
+// glow) in otherwise-dead floor space — used sparingly, low-contrast.
+export function drawProps(g: Graphics): void {
+  // warm crate, lower-left
+  const cx = 70
+  const cy = 196
+  g.rect(cx, cy, 14, 11).fill(PAL.floorTw)
+  g.rect(cx, cy, 14, 1).fill(PAL.lampW)
+  g.rect(cx, cy, 1, 11).fill(PAL.floorLw)
+  g.moveTo(cx, cy + 5).lineTo(cx + 14, cy + 5).stroke({ width: 1, color: PAL.floorLw })
+  // standing lamp with warm glow, lower-right
+  const lx = 506
+  const ly = 188
+  g.rect(lx, ly, 2, 18).fill(PAL.cpuHi)
+  g.ellipse(lx + 1, ly, 7, 4).fill({ color: PAL.lampW, alpha: 0.85 })
+  g.ellipse(lx + 1, ly + 2, 16, 10).fill({ color: PAL.lampW, alpha: 0.08 })
+}

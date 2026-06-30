@@ -1,17 +1,19 @@
 import type { WorldState } from '../player/state'
-import type { TimelineEvent } from '../model/timeline'
+import type { ScenarioInfo, Timeline } from '../model/timeline'
 import type { Scene } from '../scene/scene'
 import { PAL } from '../scene/palette'
 import { stationPositions, type Pt } from '../scene/iso'
 import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals } from '../scene/layout'
 import { narrate } from '../player/narrate'
+import { gcSummary, stwInWindow, isPlaybackStep, type GcSummary } from '../player/gc'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
 
-// Chrome is the DOM layer over the pixel canvas: header (title + GC indicator +
-// heap bar), floating zone-label pills that track the iso clusters, a legend,
-// the "what's happening" caption (narrate), the waiting-reasons breakdown, and
-// the stop-the-world banner. The pixel world stays in WebGL; crisp Cyrillic text
-// lives here in DOM. Pure derivations live in ./derive; this class is glue.
+// Chrome is the DOM layer over the pixel canvas: header (title + scenario subtitle
+// + GC indicator + heap bar + GC-cycle readout), a to-scale GC strip that shows
+// the real (sub-frame) stop-the-world pauses and concurrent-mark bands, floating
+// zone-label pills that track the iso clusters, a legend, the "what's happening"
+// caption (narrate), the waiting-reasons breakdown, and a brief stop-the-world
+// banner that reports the real pause duration. Pure derivations live in ./derive.
 
 type ZoneKey = 'pstation' | 'local' | 'global' | 'waiting' | 'syscall'
 
@@ -20,10 +22,18 @@ const LEGEND: ReadonlyArray<readonly [string, string]> = [
   ['В очереди', PAL.runnable],
   ['Ожидание', PAL.waiting],
   ['Syscall', PAL.syscall],
-  ['Кража', PAL.steal],
-  ['STW', PAL.froT],
+  ['GC mark', PAL.teal],
+  ['STW', PAL.gcStw],
   ['Завершён', PAL.dead],
 ]
+
+// fmtNs renders a real nanosecond duration in the most legible unit.
+function fmtNs(ns: number): string {
+  if (ns <= 0) return '0'
+  if (ns < 1_000) return `${Math.round(ns)} нс`
+  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(ns < 10_000 ? 1 : 0)} мкс`
+  return `${(ns / 1_000_000).toFixed(2)} мс`
+}
 
 export class Chrome {
   readonly header: HTMLElement
@@ -31,12 +41,19 @@ export class Chrome {
 
   private scene: Scene | null = null
   private numProcs = 4
-  private events: TimelineEvent[] = []
+  private timeline: Timeline | null = null
+  private gc: GcSummary = { cycles: 0, stw: [], mark: [], maxStwNs: 0 }
+  private lastT = -1
+  private stwHold = 0 // frames to keep the STW banner up after a sub-frame pause
 
+  private readonly subtitle: HTMLSpanElement
   private readonly gcDot: HTMLSpanElement
   private readonly gcLabel: HTMLSpanElement
+  private readonly gcReadout: HTMLSpanElement
   private readonly heapFill: HTMLDivElement
   private readonly heapPctEl: HTMLSpanElement
+  private readonly stripTrack: HTMLDivElement
+  private readonly stripHead: HTMLDivElement
   private readonly caption: HTMLDivElement
   private readonly banner: HTMLDivElement
   private readonly waitSub: HTMLSpanElement
@@ -44,25 +61,42 @@ export class Chrome {
   private readonly over: Record<ZoneKey, HTMLSpanElement>
   private anchors: Record<ZoneKey, Pt>
 
-  // last-rendered values, to skip per-frame DOM writes when nothing changed.
-  private last = { gc: '', heap: -1, cap: '', wait: '', stw: false, over: '' }
+  private last = { gc: '', heap: -1, wait: '', cap: '', readout: '', over: '' }
 
   constructor(stage: HTMLElement) {
-    // --- header ---
+    // --- header top row: title + scenario subtitle + GC indicator + heap bar ---
     const title = el('div', 'title')
     title.append('Планировщик Go ', el('span', 'accent', '· G·M·P'))
+    this.subtitle = el('span', 'subtitle', 'выберите сценарий ниже')
+    const titleWrap = el('div', 'title-wrap')
+    titleWrap.append(title, this.subtitle)
+
     this.gcDot = el('span', 'gc-dot')
     this.gcLabel = el('span', 'gc-label', 'GC: простой')
+    this.gcReadout = el('span', 'gc-readout', '')
     const gc = el('div', 'gc')
-    gc.append(this.gcDot, this.gcLabel)
+    gc.append(this.gcDot, this.gcLabel, this.gcReadout)
+
     this.heapFill = el('div', 'heap-fill')
     const heapBar = el('div', 'heap-bar')
     heapBar.append(this.heapFill, el('div', 'heap-goal'))
     this.heapPctEl = el('span', 'heap-pct', '—')
     const heap = el('div', 'heap')
     heap.append(el('span', 'heap-cap', 'куча'), heapBar, this.heapPctEl)
-    this.header = el('header', 'chrome-head')
-    this.header.append(title, el('div', 'spacer'), gc, heap)
+
+    const topRow = el('div', 'chrome-head')
+    topRow.append(titleWrap, el('div', 'spacer'), gc, heap)
+
+    // --- GC strip: a to-scale lane of the real GC ranges (mark bands + STW ticks)
+    // with a playhead. This is the honest channel: STW reads as the sliver it is. ---
+    this.stripTrack = el('div', 'gc-strip-track')
+    this.stripHead = el('div', 'gc-strip-head')
+    this.stripTrack.append(this.stripHead)
+    const strip = el('div', 'gc-strip')
+    strip.append(el('span', 'gc-strip-cap', 'GC'), this.stripTrack)
+
+    this.header = el('header', 'chrome-header')
+    this.header.append(topRow, strip)
 
     // --- legend ---
     this.legend = el('div', 'chrome-legend')
@@ -74,18 +108,15 @@ export class Chrome {
       item.append(dot, document.createTextNode(name))
       this.legend.append(item)
     }
-    // honest footnote: what the trace gives vs what we reconstruct.
     this.legend.append(
       el(
         'div',
         'legend-note',
-        'Локальные очереди и кража — реконструкция из трейса: простаивающий P крадёт ≈половину чужой локальной очереди; mark-assist отдельно не показан.',
+        'Локальные очереди и кража работы — реконструкция из трейса (рантайм их не пишет): горутины раскладываем по P, простаивающий P подсвечивается при краже. GC-фазы, куча и STW — настоящие данные трейса.',
       ),
     )
 
-    // --- zone pills (positioned in layout() via the scene transform). Each pill
-    // carries an "over" span for the "+N" count of goroutines beyond the render
-    // cap, so a queue of 50 stays legible while still telling its true size. ---
+    // --- zone pills ---
     const over: Partial<Record<ZoneKey, HTMLSpanElement>> = {}
     const pill = (key: ZoneKey, text: string, color: string, center: boolean): HTMLDivElement => {
       const e = el('div', center ? 'zone-pill center' : 'zone-pill')
@@ -102,17 +133,17 @@ export class Chrome {
     waiting.append(this.waitSub)
     this.pills = {
       pstation: pill('pstation', 'P-станции · выполнение', PAL.running, true),
-      local: pill('local', 'локальная очередь', PAL.runnable, true),
-      global: pill('global', 'Глобальная очередь', PAL.runnable, false),
+      local: pill('local', 'локальные очереди', PAL.runnable, true),
+      global: pill('global', 'Глобальная очередь', PAL.runnable, true),
       waiting,
       syscall: pill('syscall', 'Syscall', PAL.syscall, true),
     }
     this.over = over as Record<ZoneKey, HTMLSpanElement>
 
-    // --- caption + STW banner (stage-relative, not world-tracked) ---
+    // --- caption + STW banner ---
     this.caption = el('div', 'caption')
     this.caption.style.display = 'none'
-    this.banner = el('div', 'stw-banner', '■ STOP-THE-WORLD · все горутины заморожены')
+    this.banner = el('div', 'stw-banner', '■ STOP-THE-WORLD')
     this.banner.style.display = 'none'
     stage.append(this.caption, this.banner)
 
@@ -130,12 +161,21 @@ export class Chrome {
     this.layout()
   }
 
-  setEvents(events: TimelineEvent[]): void {
-    this.events = events
+  // setScenario shows the "what this teaches" subtitle for the active scenario.
+  setScenario(info: ScenarioInfo | undefined): void {
+    this.subtitle.textContent = info?.description ?? ''
   }
 
-  // layout re-anchors the zone pills to their iso clusters in stage px; called on
-  // canvas resize (scene.onLayout) and when the station count changes.
+  // setTimeline wires the per-run trace: builds the GC summary, renders the static
+  // GC-strip bands, and resets step tracking.
+  setTimeline(tl: Timeline): void {
+    this.timeline = tl
+    this.gc = gcSummary(tl)
+    this.lastT = -1
+    this.stwHold = 0
+    this.renderStrip()
+  }
+
   layout(): void {
     const scene = this.scene
     if (!scene) return
@@ -147,25 +187,86 @@ export class Chrome {
     }
   }
 
-  // update reflects the world state into the chrome each tick (memoized writes).
+  // renderStrip draws the to-scale GC bands once per run: a teal band per
+  // concurrent-mark phase and a red tick per real stop-the-world pause.
+  private renderStrip(): void {
+    const dur = this.timeline?.meta.durationNs ?? 0
+    // clear previous bands (keep the playhead child)
+    for (const c of [...this.stripTrack.children]) if (c !== this.stripHead) c.remove()
+    if (dur <= 0) return
+    const pctOf = (ns: number): number => Math.max(0, Math.min(100, (ns / dur) * 100))
+    for (const m of this.gc.mark) {
+      const band = el('div', 'gc-band mark')
+      band.style.left = `${pctOf(m.startNs)}%`
+      band.style.width = `${Math.max(0.4, pctOf(m.endNs) - pctOf(m.startNs))}%`
+      this.stripTrack.append(band)
+    }
+    for (const s of this.gc.stw) {
+      const tick = el('div', 'gc-band stw')
+      tick.style.left = `${pctOf(s.startNs)}%`
+      this.stripTrack.append(tick)
+    }
+  }
+
   update(world: WorldState): void {
     const gc = gcPhase(world)
+    const hp = heapPct(world)
+
+    // heap fill: width + colour every frame, so the bar reads its GC phase as it
+    // grows toward the goal (idle grey / mark teal / STW red).
+    const pct = hp === null ? -1 : Math.round(hp * 100)
+    if (pct !== this.last.heap || gc.label !== this.last.gc) {
+      this.last.heap = pct
+      this.heapFill.style.width = hp === null ? '0%' : `${pct}%`
+      this.heapFill.style.background = hp === null ? PAL.txDim : gc.color
+      this.heapPctEl.textContent = hp === null ? '—' : `${pct}%`
+    }
     if (gc.label !== this.last.gc) {
       this.last.gc = gc.label
       this.gcLabel.textContent = gc.label
       this.gcDot.style.background = gc.color
       this.gcDot.style.boxShadow = `0 0 6px ${gc.color}`
-      this.heapFill.style.background = gc.color
     }
 
-    const hp = heapPct(world)
-    const pct = hp === null ? -1 : Math.round(hp * 100)
-    if (pct !== this.last.heap) {
-      this.last.heap = pct
-      this.heapFill.style.width = hp === null ? '0%' : `${pct}%`
-      this.heapPctEl.textContent = hp === null ? '—' : `${pct}%`
+    // GC-cycle readout from the real ranges (honest even when the scene shows idle).
+    const readout =
+      this.gc.cycles > 0 ? `${this.gc.cycles} цикл. · STW до ${fmtNs(this.gc.maxStwNs)}` : 'циклов нет'
+    if (readout !== this.last.readout) {
+      this.last.readout = readout
+      this.gcReadout.textContent = readout
     }
 
+    // GC-strip playhead.
+    const dur = this.timeline?.meta.durationNs ?? 0
+    if (dur > 0) this.stripHead.style.left = `${Math.max(0, Math.min(100, (world.t / dur) * 100))}%`
+
+    // detect a stop-the-world crossed in this playback step → flash the banner with
+    // its REAL duration (the scene flashes the vignette from the same data).
+    const t = world.t
+    let stwNs = 0
+    if (isPlaybackStep(this.lastT, t, dur)) {
+      const stw = stwInWindow(this.gc, this.lastT, t)
+      if (stw) {
+        stwNs = stw.ns
+        this.stwHold = 1
+      }
+    }
+    this.lastT = t
+    if (this.stwHold > 0) this.stwHold = Math.max(0, this.stwHold - 0.05)
+
+    // caption: a fresh STW gets the spotlight with its real µs; otherwise narrate.
+    const cap = stwNs > 0 ? `Stop-the-world: мир замер на ${fmtNs(stwNs)}` : narrate(this.timeline?.events ?? [], t, world.gcActive)
+    if (cap !== this.last.cap) {
+      this.last.cap = cap
+      this.caption.textContent = cap
+      this.caption.style.display = cap ? 'block' : 'none'
+    }
+    const showBanner = this.stwHold > 0
+    if (showBanner !== (this.banner.style.display === 'block')) {
+      this.banner.style.display = showBanner ? 'block' : 'none'
+    }
+
+    // waiting-reasons breakdown.
     const wait = waitingBreakdown(world)
       .map((g) => `${g.category} ${g.count}`)
       .join(' · ')
@@ -175,52 +276,35 @@ export class Chrome {
       this.waitSub.style.display = wait ? 'block' : 'none'
     }
 
-    const cap = narrate(this.events, world.t)
-    if (cap !== this.last.cap) {
-      this.last.cap = cap
-      this.caption.textContent = cap
-      this.caption.style.display = cap ? 'block' : 'none'
-    }
-
-    const stw = gc.kind === 'stw'
-    if (stw !== this.last.stw) {
-      this.last.stw = stw
-      this.banner.style.display = stw ? 'block' : 'none'
-    }
-
-    // "+N" badges: goroutines in a zone beyond its render cap (local summed over Ps).
+    // "+N" badges beyond the render caps. Local queues never carry a "+N": once a
+    // P's lane is full the surplus spills into the global queue (zoneTotals.global),
+    // which mirrors the real runtime overflowing a full local runq.
     const tot = zoneTotals(world, this.numProcs)
-    const localOver = tot.local.reduce((s, n) => s + Math.max(0, n - CAPS.local), 0)
     const globalOver = Math.max(0, tot.global - CAPS.global)
     const waitOver = Math.max(0, tot.waiting - CAPS.waiting)
     const sysOver = Math.max(0, tot.syscall - CAPS.syscall)
-    const overKey = `${localOver}|${globalOver}|${waitOver}|${sysOver}`
+    const overKey = `${globalOver}|${waitOver}|${sysOver}`
     if (overKey !== this.last.over) {
       this.last.over = overKey
       const set = (k: ZoneKey, n: number): void => {
         this.over[k].textContent = n > 0 ? `+${n}` : ''
       }
-      set('local', localOver)
       set('global', globalOver)
       set('waiting', waitOver)
       set('syscall', sysOver)
     }
   }
 
-  // computeAnchors places each zone label in base-world coords derived from the
-  // same geometry placeIso uses, so a pill floats above its cluster of gophers.
   private computeAnchors(): Record<ZoneKey, Pt> {
     const st = stationPositions(this.numProcs)
     const cx = st.reduce((s, p) => s + p.x, 0) / st.length
     const topY = Math.min(...st.map((p) => p.y))
     return {
-      pstation: { x: cx, y: topY - 48 },
-      // local-queue label sits in the local-lane band centered under the platform
-      // row: clear of the global pile (far left) and the waiting zone (below).
-      local: { x: cx, y: topY + 44 },
-      global: { x: GLOBAL.x, y: GLOBAL.y - 12 },
-      waiting: { x: WAITING.x + WAITING.w / 2, y: WAITING.y - 16 },
-      syscall: { x: SYSCALL.x + SYSCALL.w / 2, y: SYSCALL.y - 16 },
+      pstation: { x: cx, y: topY - 46 },
+      local: { x: cx, y: topY + 40 },
+      global: { x: GLOBAL.x + GLOBAL.w / 2, y: GLOBAL.y - 14 },
+      waiting: { x: WAITING.x + WAITING.w / 2, y: WAITING.y - 14 },
+      syscall: { x: SYSCALL.x + SYSCALL.w / 2, y: SYSCALL.y - 14 },
     }
   }
 }

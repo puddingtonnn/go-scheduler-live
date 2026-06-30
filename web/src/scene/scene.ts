@@ -1,14 +1,32 @@
 import { Application, Container, Graphics, Texture, type FederatedPointerEvent } from 'pixi.js'
 import type { GState, GoroutineView, WorldState } from '../player/state'
+import type { Timeline, TimelineEvent } from '../model/timeline'
+import { gcSummary, stwInWindow, isPlaybackStep, type GcSummary } from '../player/gc'
+import { stealBurst, STEAL_LOOKBACK_NS } from '../player/steal'
 import { PAL, stateColors } from './palette'
 import { gopherCanvas, type GopherOpts } from './drawgopher'
-import { drawGrid, drawStation, stationPositions, WORLD_W, WORLD_H, type Pt } from './iso'
-import { placeIso } from './layout'
+import {
+  drawGrid,
+  drawStation,
+  drawIdleMarker,
+  drawStationGlow,
+  drawZoneFloor,
+  drawProps,
+  stationPositions,
+  WORLD_W,
+  WORLD_H,
+  type Pt,
+} from './iso'
+import { GLOBAL, WAITING, SYSCALL, placeIso } from './layout'
 import { makeGopher, type Gopher } from './gopher'
 
-const STW_HOLD_MS = 700
-const PULSE_MS = 900
 const POOF_MS = 320
+// STW is a real but sub-millisecond pause; we flash it as a brief blink (the world
+// truly freezes, but only for an instant) — never a long held freeze, which would
+// misrepresent modern Go's whole achievement. The honest duration lives in the
+// caption ("84µs") and the to-scale GC strip; this is just a visible cue.
+const STW_FLASH_MS = 320
+const GLOW_MS = 600
 
 const STATE_RU: Record<GState, string> = {
   running: 'бежит',
@@ -18,24 +36,21 @@ const STATE_RU: Record<GState, string> = {
   dead: 'завершилась',
 }
 
-type AnimKind = GState | 'frozen'
+type AnimKind = GState
 
 interface Rec {
   g: Gopher
   tx: number
   ty: number
-  pulse: number
-  wasSteal: boolean
+  scale: number
   view?: GoroutineView
-  kind: AnimKind // which frame set to cycle
+  kind: AnimKind
   phase: number // per-gopher animation phase offset (de-syncs the crowd)
   dying: number // dead-poof timer (ms remaining); 0 = alive
 }
 
-// bakeTextures bakes a small frame atlas per animated state once; the scene
-// cycles the frames on a wall clock (see FPS) with a per-gopher phase offset.
-// Continuous motion that needs no new texture (bob/sway/breathe/steal arc) is
-// applied as a sprite offset in tick().
+// bakeTextures bakes a small frame atlas per animated state once; the scene cycles
+// the frames on a wall clock (see FPS) with a per-gopher phase offset.
 function bakeTextures() {
   const t = (o: GopherOpts): Texture => {
     const tx = Texture.from(gopherCanvas(o))
@@ -60,23 +75,18 @@ function bakeTextures() {
       { state: 'syscall', flip: true, dots: 3 },
     ]),
     dead: arr([{ state: 'dead', dead: true }]),
-    steal: arr([
-      { state: 'steal', run: true, armPhase: 1, bang: true, ring: 8, ringA: 1, motion: true },
-      { state: 'steal', run: true, armPhase: -1, bang: true, ring: 14, ringA: 0.7, motion: true },
-      { state: 'steal', run: true, armPhase: 1, bang: true, ring: 20, ringA: 0.35, motion: true },
-    ]),
     frozen: t({ frozen: true, bang: true }),
   }
 }
 
-// animation frames-per-second per state (0 = single frame, no cycling).
-const FPS: Record<AnimKind, number> = { running: 8, runnable: 0, waiting: 4, syscall: 3, dead: 0, frozen: 0 }
+const FPS: Record<AnimKind, number> = { running: 8, runnable: 0, waiting: 4, syscall: 3, dead: 0 }
 
-// Scene renders the isometric pixel-art world: a faint floor grid + N P-stations
-// in a base-sized world container scaled to fit, with one gopher Sprite per
-// goroutine placed by placeIso and depth-sorted by screen-y. Hovering shows a
-// tooltip; the id toggle labels goroutines. Chrome (GC/heap/legend/caption) is
-// DOM, added in a later slice.
+// Scene renders the isometric pixel-art world: floor grid + cozy props + N
+// P-stations (with idle-P markers), zone floor platters, and one gopher Sprite per
+// goroutine placed+scaled by placeIso and depth-sorted by screen-y. A steal shows
+// as an aggregate amber glow on the destination P (driven by the reconstructed
+// steal bursts, never a per-goroutine flash); a stop-the-world shows as a brief
+// red vignette blink whose real duration is reported by the chrome caption.
 export class Scene {
   /** fired after every fit() (resize) so DOM chrome can re-anchor zone pills. */
   onLayout?: () => void
@@ -85,30 +95,39 @@ export class Scene {
   private readonly world = new Container()
   private readonly grid = new Graphics()
   private readonly stationsG = new Graphics()
+  private readonly zoneFloorG = new Graphics()
+  private readonly fxG = new Graphics()
   private readonly gopherLayer = new Container()
   private readonly stwOverlay = new Graphics()
   private readonly tex = bakeTextures()
   private showIds = true
-  private stwHold = 0
-  private wasStw = false
   private animT = 0
   private tooltip!: HTMLDivElement
-  // current world→canvas transform (set by fit()); canvas fills the stage at 0,0
-  // so these map a base-world point straight to stage px for DOM overlays.
   private scale = 1
   private offX = 0
   private offY = 0
+
+  // event-cue state
+  private events: TimelineEvent[] = []
+  private gc: GcSummary = { cycles: 0, stw: [], mark: [], maxStwNs: 0 }
+  private durationNs = 0
+  private lastT = -1
+  private stwFlash = 0
+  private stations: Pt[] = []
+  private occupied: boolean[] = []
+  private stationGlow: number[] = []
 
   private constructor(
     private readonly app: Application,
     private numProcs: number,
   ) {
     this.gopherLayer.sortableChildren = true
-    this.world.addChild(this.grid, this.stationsG, this.gopherLayer, this.stwOverlay)
+    this.world.addChild(this.grid, this.zoneFloorG, this.stationsG, this.fxG, this.gopherLayer, this.stwOverlay)
     app.stage.addChild(this.world)
     drawGrid(this.grid)
     this.grid.alpha = 0.5
-    this.buildStations()
+    drawProps(this.zoneFloorG)
+    this.buildStatics()
     this.fit()
     app.ticker.add((tk) => this.tick(tk.deltaMS))
   }
@@ -128,11 +147,22 @@ export class Scene {
     this.numProcs = numProcs
     for (const rec of this.gophers.values()) rec.g.container.destroy()
     this.gophers.clear()
-    this.buildStations()
+    this.buildStatics()
+  }
+
+  // loadTimeline wires the per-run trace so the scene can fire the GC/steal cues
+  // and reset its step-window tracking.
+  loadTimeline(tl: Timeline): void {
+    this.events = tl.events
+    this.gc = gcSummary(tl)
+    this.durationNs = tl.meta.durationNs
+    this.lastT = -1
+    this.stwFlash = 0
+    this.stationGlow = this.stations.map(() => 0)
   }
 
   setWorld(world: WorldState): void {
-    this.updateStw(world)
+    this.detectCues(world)
     this.place(world)
   }
 
@@ -142,13 +172,19 @@ export class Scene {
     return this.showIds
   }
 
-  private buildStations(): void {
+  private buildStatics(): void {
+    this.stations = stationPositions(this.numProcs)
+    this.occupied = this.stations.map(() => false)
+    this.stationGlow = this.stations.map(() => 0)
     this.stationsG.clear()
-    for (const st of stationPositions(this.numProcs)) drawStation(this.stationsG, st.x, st.y)
+    for (const st of this.stations) drawStation(this.stationsG, st.x, st.y)
+    this.zoneFloorG.clear()
+    drawProps(this.zoneFloorG)
+    drawZoneFloor(this.zoneFloorG, GLOBAL.x, GLOBAL.y, GLOBAL.w, GLOBAL.h, PAL.runnable)
+    drawZoneFloor(this.zoneFloorG, WAITING.x, WAITING.y, WAITING.w, WAITING.h, PAL.waiting)
+    drawZoneFloor(this.zoneFloorG, SYSCALL.x, SYSCALL.y, SYSCALL.w, SYSCALL.h, PAL.syscall)
   }
 
-  // worldToScreen maps a base-world point (460x248 space) to stage px, so DOM
-  // zone pills track the iso clusters as the canvas scales and recenters.
   worldToScreen(p: Pt): Pt {
     return { x: this.offX + p.x * this.scale, y: this.offY + p.y * this.scale }
   }
@@ -162,34 +198,45 @@ export class Scene {
     this.world.x = this.offX
     this.world.y = this.offY
     this.stwOverlay.clear()
-    this.stwOverlay
-      .rect(0, 0, WORLD_W, WORLD_H)
-      .fill({ color: PAL.gcStw, alpha: 0.1 })
-      .stroke({ width: 2 / s, color: PAL.gcStw, alpha: 0.5 })
-    this.stwOverlay.visible = this.stwHold > 0
+    // red edge vignette: a thick stroke on the world bounds (half clipped outside)
+    // reads as the screen edges flashing, not a full-screen freeze tint.
+    this.stwOverlay.rect(0, 0, WORLD_W, WORLD_H).stroke({ width: 30, color: PAL.gcStw, alpha: 1 })
     this.onLayout?.()
+  }
+
+  // detectCues looks at the playback step (lastT, t] for a stop-the-world pause and
+  // for reconstructed steal bursts, firing the brief vignette / station glow. Big
+  // jumps (scrubbing) are ignored so a seek doesn't spuriously flash.
+  private detectCues(world: WorldState): void {
+    const t = world.t
+    this.occupied = this.stations.map((_, pid) => (world.procs[pid]?.gid ?? -1) >= 0)
+    if (isPlaybackStep(this.lastT, t, this.durationNs)) {
+      if (stwInWindow(this.gc, this.lastT, t)) this.stwFlash = 1
+      const burst = stealBurst(this.events, t, STEAL_LOOKBACK_NS)
+      if (burst && burst.pid < this.stationGlow.length) this.stationGlow[burst.pid] = 1
+    }
+    this.lastT = t
   }
 
   private place(world: WorldState): void {
     const places = placeIso(world, this.numProcs)
-    const frozen = this.stwHold > 0
     for (const [gid, p] of places) {
       let rec = this.gophers.get(gid)
       if (!rec) rec = this.spawn(gid, p.x, p.y)
       rec.dying = 0
       rec.tx = p.x
       rec.ty = p.y
+      if (rec.scale !== p.scale) {
+        rec.scale = p.scale
+        rec.g.setScale(p.scale)
+      }
       const v = world.goroutines.get(gid)!
       const prevState = rec.view?.state
       rec.view = v
       if (v.state !== prevState) rec.g.setTagColor(stateColors(v.state)[0])
-      rec.kind = frozen ? 'frozen' : v.state
-      const stealNow = v.state === 'running' && v.stolen
-      if (stealNow && !rec.wasSteal) rec.pulse = 1
-      rec.wasSteal = stealNow
+      rec.kind = v.state
     }
-    // gophers no longer placed: dead ones poof out (tick), the rest (capped /
-    // gone) are removed immediately.
+    // gophers no longer placed: dead ones poof out (tick), the rest removed.
     for (const [gid, rec] of this.gophers) {
       if (places.has(gid) || rec.dying > 0) continue
       if (world.goroutines.get(gid)?.state === 'dead') {
@@ -217,30 +264,41 @@ export class Scene {
     c.on('pointerout', () => this.hideTip())
 
     this.gopherLayer.addChild(c)
-    const rec: Rec = { g, tx: x, ty: y, pulse: 0, wasSteal: false, kind: 'runnable', phase: (gid % 17) * 0.37, dying: 0 }
+    const rec: Rec = { g, tx: x, ty: y, scale: 1, kind: 'runnable', phase: (gid % 17) * 0.37, dying: 0 }
     this.gophers.set(gid, rec)
     return rec
-  }
-
-  private updateStw(world: WorldState): void {
-    const stwNow = world.gcActive.some((n) => n.includes('stop-the-world'))
-    if (stwNow && !this.wasStw) this.stwHold = 1
-    this.wasStw = stwNow
-    this.stwOverlay.visible = stwNow || this.stwHold > 0
   }
 
   private tick(dtMs: number): void {
     const k = 1 - Math.pow(0.0015, dtMs / 1000)
     this.animT += dtMs / 1000
-    if (this.stwHold > 0) this.stwHold = Math.max(0, this.stwHold - dtMs / STW_HOLD_MS)
+    if (this.stwFlash > 0) this.stwFlash = Math.max(0, this.stwFlash - dtMs / STW_FLASH_MS)
+    this.stwOverlay.alpha = this.stwFlash * 0.45
+    this.stwOverlay.visible = this.stwFlash > 0
+
+    // fx layer: idle-P markers + fading steal glows
+    let glowing = false
+    this.fxG.clear()
+    for (let pid = 0; pid < this.stations.length; pid++) {
+      const st = this.stations[pid]
+      if (!this.occupied[pid]) drawIdleMarker(this.fxG, st.x, st.y)
+      if (this.stationGlow[pid] > 0) {
+        this.stationGlow[pid] = Math.max(0, this.stationGlow[pid] - dtMs / GLOW_MS)
+        drawStationGlow(this.fxG, st.x, st.y, this.stationGlow[pid])
+        glowing = glowing || this.stationGlow[pid] > 0
+      }
+    }
+
+    const frozen = this.stwFlash > 0
     for (const [gid, rec] of this.gophers) {
       const c = rec.g.container
 
-      // dead poof: fade + grow, then remove
       if (rec.dying > 0) {
         rec.dying -= dtMs
         const a = Math.max(0, rec.dying / POOF_MS)
         rec.g.setAlpha(a)
+        // poof grows the CONTAINER (sprite keeps its own setScale, so zone gophers
+        // at 0.55 still poof from their reduced size — the two scales compose).
         c.scale.set(1 + (1 - a) * 0.5)
         rec.g.setTexture(this.tex.dead[0])
         if (rec.dying <= 0) {
@@ -255,26 +313,12 @@ export class Scene {
       c.y += (rec.ty - c.y) * k
       c.zIndex = c.y
 
-      // steal pop: red frames, scale pop, arc lift along the in-flight ease
-      if (rec.pulse > 0 && !(this.stwHold > 0)) {
-        rec.pulse = Math.max(0, rec.pulse - dtMs / PULSE_MS)
-        const prog = 1 - rec.pulse
-        c.scale.set(1 + 0.35 * rec.pulse)
-        rec.g.setOffset(0, -26 * Math.sin(Math.PI * prog))
-        const f = Math.min(this.tex.steal.length - 1, Math.floor(prog * this.tex.steal.length))
-        rec.g.setTexture(this.tex.steal[f])
-        continue
-      }
-
-      if (c.scale.x !== 1) c.scale.set(1)
-      this.applyMotion(rec)
-      rec.g.setTexture(this.frameFor(rec))
+      this.applyMotion(rec, frozen)
+      rec.g.setTexture(frozen ? this.tex.frozen : this.frameFor(rec))
     }
   }
 
-  // frameFor picks the current atlas frame for a gopher's state on the wall clock.
   private frameFor(rec: Rec): Texture {
-    if (rec.kind === 'frozen') return this.tex.frozen
     const frames = this.tex[rec.kind]
     const fps = FPS[rec.kind]
     if (fps <= 0 || frames.length <= 1) return frames[0]
@@ -282,14 +326,12 @@ export class Scene {
     return frames[i]
   }
 
-  // applyMotion sets the per-state continuous sprite offset (no new texture):
-  // running bobs its head, runnable sways, waiting breathes.
-  private applyMotion(rec: Rec): void {
-    const tphase = this.animT + rec.phase
-    if (rec.kind === 'frozen') {
+  private applyMotion(rec: Rec, frozen: boolean): void {
+    if (frozen) {
       rec.g.setOffset(0, 0)
       return
     }
+    const tphase = this.animT + rec.phase
     switch (rec.kind) {
       case 'running':
         rec.g.setOffset(0, -Math.abs(Math.sin(tphase * 4.5)) * 1.6)

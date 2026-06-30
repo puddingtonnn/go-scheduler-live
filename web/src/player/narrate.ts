@@ -1,42 +1,44 @@
 import type { TimelineEvent } from '../model/timeline'
-import { stealBurst, pluralGor } from './steal'
+import { stealBurst, pluralGor, STEAL_LOOKBACK_NS } from './steal'
 
-// narrate returns a short Russian sentence describing the most notable event in
-// the trace just before t, for the "what's happening" caption. Empty string
-// when nothing notable is nearby (e.g. steady running). Pure and unit-tested.
+// narrate returns a short Russian sentence describing the most notable thing
+// happening at t, for the "what's happening" caption. Empty when nothing notable
+// is nearby. Pure and unit-tested.
+//
+// GC phase (STW / concurrent mark) is read from the folded `gcActive` so the
+// caption stays consistent with the scene — it never claims stop-the-world after
+// the range has ended (the previous version re-scanned raw events in an 8ms window
+// and lied for ~8ms of trace time, i.e. seconds of wall time at 1x). Point events
+// (steals, blocks, exits) still come from a short look-back window.
 
-const WINDOW_NS = 8_000_000 // look back ~8ms of trace time for a notable event
+const WINDOW_NS = STEAL_LOOKBACK_NS // look back for a notable point event (steal/block/exit)
 
-export function narrate(events: TimelineEvent[], t: number): string {
-  let best: { sal: number; text: string } | null = null
+export function narrate(events: TimelineEvent[], t: number, gcActive: string[]): string {
+  let bestSal = -1
+  let bestText = ''
+  const consider = (sal: number, text: string): void => {
+    // ">=" keeps the latest among equally-salient events (events iterate in time order).
+    if (sal >= bestSal) {
+      bestSal = sal
+      bestText = text
+    }
+  }
+
+  // GC phase from the live folded state (truthful: only while actually active).
+  if (gcActive.some((n) => n.includes('stop-the-world'))) consider(5, 'Stop-the-world: все горутины замерли')
+  else if (gcActive.some((n) => n.includes('mark phase'))) consider(4, 'GC: фаза разметки (concurrent mark)')
+
+  // Steals are narrated as a batch (P took N): the runtime grabs ~half a victim's
+  // queue at once, not the per-goroutine flag we reconstruct.
+  const burst = stealBurst(events, t, WINDOW_NS)
+  if (burst) consider(3, `P${burst.pid} забрал ${burst.count} ${pluralGor(burst.count)}`)
+
   for (const e of events) {
     if (e.t > t) break
     if (e.t < t - WINDOW_NS) continue
-    const d = describe(e)
-    // Iterating in time order, ">=" keeps the latest among equally-salient events.
-    if (d && (best === null || d.sal >= best.sal)) best = d
+    if (e.type === 'g_block') consider(2, `G${e.gid} заблокирован: ${e.reason ?? '?'}`)
+    else if (e.type === 'g_exit') consider(1, `G${e.gid} завершилась`)
   }
-  // Steals are narrated as a batch (P took N), reflecting that the runtime grabs
-  // ~half a victim's queue at once, not the per-goroutine flag we reconstruct.
-  const burst = stealBurst(events, t, WINDOW_NS)
-  if (burst) {
-    const d = { sal: 3, text: `P${burst.pid} забрал ${burst.count} ${pluralGor(burst.count)}` }
-    if (best === null || d.sal >= best.sal) best = d
-  }
-  return best?.text ?? ''
-}
 
-function describe(e: TimelineEvent): { sal: number; text: string } | null {
-  switch (e.type) {
-    case 'gc_range_begin':
-      if (e.name?.includes('stop-the-world')) return { sal: 5, text: 'Stop-the-world: все горутины замерли' }
-      if (e.name?.includes('mark phase')) return { sal: 4, text: 'GC: фаза разметки (concurrent mark)' }
-      return null
-    case 'g_block':
-      return { sal: 2, text: `G${e.gid} заблокирован: ${e.reason ?? '?'}` }
-    case 'g_exit':
-      return { sal: 1, text: `G${e.gid} завершилась` }
-    default:
-      return null
-  }
+  return bestText
 }

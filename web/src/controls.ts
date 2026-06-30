@@ -25,15 +25,30 @@ export class Controls {
     private readonly scenarios: ScenarioInfo[],
     private readonly onRun: (p: RunParams) => void,
     private readonly onToggleIds?: () => boolean,
+    private readonly onScenarioChange?: (info: ScenarioInfo) => void,
   ) {
     const bar = document.createElement('div')
     bar.className = 'controls'
+    bar.setAttribute('role', 'group')
+    bar.setAttribute('aria-label', 'управление проигрыванием')
 
-    this.playBtn = button('Играть', () => this.player?.toggle())
+    // toggle then sync the label, because pausing stops the tick loop that would
+    // otherwise refresh it (the button would stay reading "Пауза" after a pause).
+    this.playBtn = button('Играть', () => {
+      this.player?.toggle()
+      this.syncPlayBtn()
+    })
     const stepBtn = button('Шаг', () => this.player?.step())
 
-    const idBtn = button('id', () => idBtn.classList.toggle('active', this.onToggleIds?.() ?? false))
+    const idBtn = button('id', () => {
+      const on = this.onToggleIds?.() ?? false
+      idBtn.classList.toggle('active', on)
+      idBtn.setAttribute('aria-pressed', String(on))
+    })
     idBtn.title = 'показать номера горутин'
+    // ids are shown by default in the scene, so the toggle starts active.
+    idBtn.classList.add('active')
+    idBtn.setAttribute('aria-pressed', 'true')
 
     const speeds = document.createElement('div')
     speeds.className = 'speeds'
@@ -71,12 +86,20 @@ export class Controls {
       opt.textContent = sc.title
       this.scenarioSel.append(opt)
     }
-    this.scenarioSel.addEventListener('change', () => this.applyScenarioParams())
+    this.scenarioSel.addEventListener('change', () => {
+      this.applyScenarioParams()
+      this.markDirty()
+      const info = this.scenarios.find((s) => s.id === this.scenarioSel.value)
+      if (info) this.onScenarioChange?.(info)
+    })
 
     this.procsInput = numberInput(1, 8, 4)
     this.goroutinesInput = numberInput(1, 200, 50)
+    this.procsInput.addEventListener('input', () => this.markDirty())
+    this.goroutinesInput.addEventListener('input', () => this.markDirty())
     this.runBtn = button('Запустить', () => this.triggerRun())
     this.runBtn.className = 'run'
+    this.runBtn.setAttribute('aria-label', 'запустить выбранный сценарий')
 
     bar.append(
       this.playBtn,
@@ -117,6 +140,16 @@ export class Controls {
     this.runBtn.textContent = loading ? 'Запуск…' : 'Запустить'
   }
 
+  // markDirty highlights the run button when the config changed since the last run,
+  // hinting that "Запустить" must be pressed to apply it.
+  private markDirty(): void {
+    this.runBtn.classList.add('dirty')
+  }
+
+  private markClean(): void {
+    this.runBtn.classList.remove('dirty')
+  }
+
   private syncPlayBtn(): void {
     this.playBtn.textContent = this.player?.playing ? 'Пауза' : 'Играть'
   }
@@ -135,10 +168,17 @@ export class Controls {
   }
 
   private triggerRun(): void {
+    this.markClean()
+    // clamp goroutines to the active scenario's own range (set on the input by
+    // applyScenarioParams), not a fixed [1,200], so the frontend agrees with the
+    // per-scenario backend clamp. The [1,200] fallback only applies if a scenario
+    // ships without a 'goroutines' param; the backend re-clamps regardless.
+    const gLo = Number(this.goroutinesInput.min) || 1
+    const gHi = Number(this.goroutinesInput.max) || 200
     this.onRun({
       scenario: this.scenarioSel.value,
       gomaxprocs: clampNum(this.procsInput, 1, 8),
-      goroutines: clampNum(this.goroutinesInput, 1, 200),
+      goroutines: clampNum(this.goroutinesInput, gLo, gHi),
     })
   }
 }
