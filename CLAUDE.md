@@ -159,6 +159,25 @@ id исполняющего M** (`exptrace.Event.Thread()`); это реальн
   mark 5 > syscall 4 > кража 3 > блок 2 > exit 1), M в тексте — те же порядковые алиасы
   (`midAliases` прокинута из chrome). `g_unblock` M не озвучивает (unblocker-trap).
 
+## Прод-сценарии + показательность (слайсы после «завершения» v1)
+- **Сценарии `mutex` (Order 4) и `leak` (Order 5).** mutex: N воркеров на одном
+  `sync.Mutex` (hold 1.2мс/gap 200мкс) — contention сериализует, объём событий
+  self-paced; фронт сам показывает Waiting·sync (`reason.ts`). leak: спиннеры держат
+  станции + капельница горутин, навсегда блокирующихся `<-ch` без писателя; утекшие
+  сознательно НЕ в WaitGroup (Run возвращается, они висят; в тестовом процессе
+  безвредно). Тесты: sync-блоки ≥20; «последнее событие — chan-block» у ≥N/2.
+- **URL-шаринг:** `web/src/share.ts` (чистый codec `?scenario=&gomaxprocs=&goroutines=&t=`,
+  vitest; `?iso` не трогает). Бут применяет шаренные параметры и seek к `t` с паузой;
+  `history.replaceState` на run и на паузных emit-ах (во время play URL не трогаем).
+  `Controls.setParams()/params()`.
+- **Статик-демо (GitHub Pages):** `cmd/bake` гоняет обычный конвейер по матрице
+  (каждый сценарий p=4 + workstealing p=1/4/8) → `web/public/runs/*.json`+`index.json`
+  (в .gitignore, генерятся в CI). Фронт `VITE_STATIC=1`: `api.ts` читает индекс,
+  `fetchRun` отдаёт ближайший запечённый (`nearestRun`, gomaxprocs доминирует;
+  vitest). `VITE_BASE=/gmp-model/` для Pages; workflow `.github/workflows/pages.yml`
+  (bake → static build → deploy, на push в main).
+- Дефолтный темп: `BASE_WALL_MS = 90_000` (45с давало смены состояний чаще lerp-перелёта).
+
 ## Conventions
 - `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
 - Ошибки оборачиваем через `%w` с контекстом; sentinel-ошибки (`ErrNotFound`) для
