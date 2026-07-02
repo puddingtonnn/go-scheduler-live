@@ -123,6 +123,46 @@ func TestScenarioEvents(t *testing.T) {
 		t.Logf("syscalls: %d events, %d syscall enters, max distinct Ms per P = %d", len(ev), enters, maxMs)
 	})
 
+	t.Run("mutex parks contenders with a sync reason", func(t *testing.T) {
+		ev := parse(t, Request{Scenario: "mutex", GOMAXPROCS: 4, Goroutines: 12, Duration: 600 * time.Millisecond})
+		syncBlocks := 0
+		for _, e := range ev {
+			if e.Type == timeline.EventGBlock {
+				r := strings.ToLower(e.Reason)
+				if strings.Contains(r, "sync") || strings.Contains(r, "mutex") {
+					syncBlocks++
+				}
+			}
+		}
+		if syncBlocks < 20 {
+			t.Errorf("sync-reason blocks = %d, want >= 20 (contention not visible?)", syncBlocks)
+		}
+		t.Logf("mutex: %d events, %d sync blocks", len(ev), syncBlocks)
+	})
+
+	t.Run("leak leaves goroutines parked forever on channels", func(t *testing.T) {
+		const n = 24
+		ev := parse(t, Request{Scenario: "leak", GOMAXPROCS: 4, Goroutines: n, Duration: 900 * time.Millisecond})
+		// A leaked goroutine's LAST event is a chan-reason block: it parked and
+		// never came back.
+		last := map[int64]timeline.Event{}
+		for _, e := range ev {
+			if e.GID >= 0 {
+				last[e.GID] = e
+			}
+		}
+		leaked := 0
+		for _, e := range last {
+			if e.Type == timeline.EventGBlock && strings.Contains(strings.ToLower(e.Reason), "chan") {
+				leaked++
+			}
+		}
+		if leaked < n/2 {
+			t.Errorf("goroutines parked forever on channels = %d, want >= %d", leaked, n/2)
+		}
+		t.Logf("leak: %d events, %d goroutines left parked", len(ev), leaked)
+	})
+
 	t.Run("gcpressure triggers GC mark phases and heap metrics", func(t *testing.T) {
 		ev := parse(t, Request{Scenario: "gcpressure", GOMAXPROCS: 4, Goroutines: 20, Duration: 700 * time.Millisecond})
 		var gcMark, metrics int
@@ -155,7 +195,7 @@ func TestSchedulerInvariants(t *testing.T) {
 	defer cancel()
 
 	const procs = 4
-	scens := []string{"workstealing", "pingpong", "gcpressure"}
+	scens := []string{"workstealing", "pingpong", "gcpressure", "mutex", "leak"}
 	if runtime.GOOS != "windows" {
 		scens = append(scens, "syscalls")
 	}
