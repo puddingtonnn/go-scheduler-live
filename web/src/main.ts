@@ -4,6 +4,7 @@ import { Player } from './player/player'
 import { Scene } from './scene/scene'
 import { Chrome } from './ui/chrome'
 import { Controls } from './controls'
+import { parseShare, buildShare } from './share'
 
 // Composition root: builds the DOM chrome (header + GC strip + legend) around the
 // canvas stage and the control bar, then on each run fetches a Timeline,
@@ -69,12 +70,27 @@ async function boot(): Promise<void> {
     return scenarios.find((s) => s.id === id)
   }
 
+  // updateShareUrl mirrors the current run (and, when paused, the playhead)
+  // into the address bar so the view is shareable. replaceState only — no
+  // history spam; never called while playing (see onTick).
+  let lastRun: RunParams | null = null
+  let lastUrl = ''
+  function updateShareUrl(t?: number): void {
+    if (!lastRun) return
+    const qs = buildShare({ ...lastRun, t })
+    if (qs === lastUrl) return
+    lastUrl = qs
+    history.replaceState(null, '', `${location.pathname}?${qs}`)
+  }
+
   async function run(params: RunParams): Promise<void> {
     controls.setLoading(true)
     errorBox.style.display = 'none'
     try {
       const tl = await fetchRun(params)
       timeline = tl
+      lastRun = params
+      updateShareUrl()
       player?.pause()
       if (!scene) {
         scene = await Scene.create(stage, tl.meta.numProcs)
@@ -95,6 +111,9 @@ async function boot(): Promise<void> {
         sc.setWorld(w)
         chrome.update(w)
         controls.sync()
+        // Paused emits are discrete (seek/step/pause) — safe to mirror into the
+        // URL; while playing the URL keeps the run params without t.
+        if (!p.playing) updateShareUrl(w.t)
       }
       player = p
       controls.bindPlayer(p)
@@ -108,9 +127,23 @@ async function boot(): Promise<void> {
     }
   }
 
-  const first = scenarios[0]
-  const firstGoroutines = first.params.find((p) => p.name === 'goroutines')?.default ?? 50
-  await run({ scenario: first.id, gomaxprocs: 4, goroutines: firstGoroutines })
+  // A shared URL preselects the run (and the paused moment); otherwise boot
+  // with the first scenario's defaults.
+  const share = parseShare(location.search)
+  if (share.scenario && scenarioInfo(share.scenario)) {
+    controls.setParams(share)
+  } else {
+    const first = scenarios[0]
+    const firstGoroutines = first.params.find((p) => p.name === 'goroutines')?.default ?? 50
+    controls.setParams({ scenario: first.id, gomaxprocs: 4, goroutines: firstGoroutines })
+  }
+  await run(controls.params())
+  if (share.t !== undefined && player) {
+    const p = player as Player
+    p.pause()
+    p.seek(Math.min(share.t, p.duration))
+    controls.sync()
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {

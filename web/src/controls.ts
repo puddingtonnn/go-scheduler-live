@@ -132,6 +132,31 @@ export class Controls {
     this.applyScenarioParams()
   }
 
+  // setParams preselects the scenario and inputs (e.g. from a shared URL) so
+  // the next run — or the boot-time first run — uses them. Values are clamped
+  // by the same rules as a manual run.
+  setParams(p: Partial<RunParams>): void {
+    if (p.scenario && this.scenarios.some((s) => s.id === p.scenario)) {
+      this.scenarioSel.value = p.scenario
+      this.applyScenarioParams()
+      const info = this.scenarios.find((s) => s.id === p.scenario)
+      if (info) this.onScenarioChange?.(info)
+    }
+    if (p.gomaxprocs !== undefined) this.procsInput.value = String(p.gomaxprocs)
+    if (p.goroutines !== undefined) this.goroutinesInput.value = String(p.goroutines)
+  }
+
+  // params returns what "Запустить" would run right now (same clamping).
+  params(): RunParams {
+    const gLo = Number(this.goroutinesInput.min) || 1
+    const gHi = Number(this.goroutinesInput.max) || 200
+    return {
+      scenario: this.scenarioSel.value,
+      gomaxprocs: clampNum(this.procsInput, 1, 8),
+      goroutines: clampNum(this.goroutinesInput, gLo, gHi),
+    }
+  }
+
   bindPlayer(player: Player): void {
     this.player = player
     player.setSpeed(this.currentSpeed) // keep the chosen speed across re-runs
@@ -183,17 +208,10 @@ export class Controls {
 
   private triggerRun(): void {
     this.markClean()
-    // clamp goroutines to the active scenario's own range (set on the input by
-    // applyScenarioParams), not a fixed [1,200], so the frontend agrees with the
-    // per-scenario backend clamp. The [1,200] fallback only applies if a scenario
-    // ships without a 'goroutines' param; the backend re-clamps regardless.
-    const gLo = Number(this.goroutinesInput.min) || 1
-    const gHi = Number(this.goroutinesInput.max) || 200
-    this.onRun({
-      scenario: this.scenarioSel.value,
-      gomaxprocs: clampNum(this.procsInput, 1, 8),
-      goroutines: clampNum(this.goroutinesInput, gLo, gHi),
-    })
+    // params() clamps goroutines to the active scenario's own range (set on the
+    // input by applyScenarioParams), not a fixed [1,200], so the frontend agrees
+    // with the per-scenario backend clamp; the backend re-clamps regardless.
+    this.onRun(this.params())
   }
 }
 
