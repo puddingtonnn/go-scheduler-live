@@ -1,11 +1,18 @@
 import { NO_RESOURCE, type Timeline } from '../model/timeline'
+import { isTracerArtifact } from './gc'
 
 export type GState = 'runnable' | 'running' | 'waiting' | 'syscall' | 'dead'
 
 export interface GoroutineView {
   gid: number
   state: GState
-  /** associated P: where it runs (running/syscall) or was enqueued (runnable hint). */
+  /**
+   * associated P: for `running` it is the P actually executing this goroutine.
+   * For `syscall` it is the P the goroutine left on entering the call — the P
+   * itself is already freed (cleared from `procs`) and may be handed to another M;
+   * this is only a "came from" hint (shown in the tooltip). For `waiting` it is
+   * NO_RESOURCE (a blocked goroutine holds no P).
+   */
   pid: number
   reason?: string
   /** the current run started as a reconstructed steal. */
@@ -127,7 +134,9 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         // Proc occupancy is derived from goroutine events above.
         break
       case 'gc_range_begin':
-        if (e.name) gcActive.push(e.name)
+        // Skip the tracer's start-trace STW artifact so it never reads as a GC
+        // phase (its matching end below simply finds nothing to remove).
+        if (e.name && !isTracerArtifact(e.name)) gcActive.push(e.name)
         break
       case 'gc_range_end': {
         if (e.name) {

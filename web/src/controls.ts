@@ -94,7 +94,9 @@ export class Controls {
     })
 
     this.procsInput = numberInput(1, 8, 4)
+    this.procsInput.title = 'GOMAXPROCS — число P (слотов выполнения). Ограничено 1–8 под размер изо-сцены'
     this.goroutinesInput = numberInput(1, 200, 50)
+    this.goroutinesInput.title = 'Сколько горутин запустить в сценарии (диапазон зависит от сценария)'
     this.procsInput.addEventListener('input', () => this.markDirty())
     this.goroutinesInput.addEventListener('input', () => this.markDirty())
     this.runBtn = button('Запустить', () => this.triggerRun())

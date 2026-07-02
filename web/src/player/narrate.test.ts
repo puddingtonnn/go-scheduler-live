@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { narrate } from './narrate'
+import { narrate, captionWindowNs } from './narrate'
 import { NO_RESOURCE, type TimelineEvent } from '../model/timeline'
 
 function ev(t: number, type: TimelineEvent['type'], extra: Partial<TimelineEvent> = {}): TimelineEvent {
@@ -46,5 +46,27 @@ describe('narrate', () => {
 
   it('ignores events outside the look-back window', () => {
     expect(narrate([ev(0, 'g_block', { gid: 5, reason: 'sync' })], 100_000_000, [])).toBe('')
+  })
+
+  it('bounds point events by an explicit window so short traces do not go stale', () => {
+    const events = [ev(1_000_000, 'g_block', { gid: 5, reason: 'chan receive' })]
+    // event at 1ms, viewed at 3ms: outside a 1ms window → nothing notable.
+    expect(narrate(events, 3_000_000, [], 1_000_000)).toBe('')
+    // but inside the default 8ms window it is still reported.
+    expect(narrate(events, 3_000_000, [])).toContain('G5')
+  })
+})
+
+describe('captionWindowNs', () => {
+  it('caps at the 8ms look-back for long traces', () => {
+    expect(captionWindowNs(2_000_000_000)).toBe(8_000_000)
+  })
+
+  it('scales down to ~1% of the run for short traces (workstealing ~39ms)', () => {
+    expect(captionWindowNs(39_000_000)).toBe(390_000)
+  })
+
+  it('never returns a zero-width window', () => {
+    expect(captionWindowNs(0)).toBe(1)
   })
 })

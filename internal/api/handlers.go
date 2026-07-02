@@ -25,7 +25,9 @@ import (
 // tracerun.Run satisfies this; tests supply a fake.
 type TraceRunner func(ctx context.Context, req tracerun.Request) ([]byte, error)
 
-// Clamp bounds for run parameters.
+// Clamp bounds for run parameters. maxProcs is a UI constraint, not a Go one:
+// GOMAXPROCS can be hundreds, but the isometric scene has a fixed row of P-stations
+// (see web/src/scene/iso.ts stationPositions), so we cap it to keep the world legible.
 const (
 	minProcs        = 1
 	maxProcs        = 8

@@ -107,7 +107,9 @@ async function boot(): Promise<void> {
     }
   }
 
-  await run({ scenario: scenarios[0].id, gomaxprocs: 4, goroutines: scenarios[0].params[0]?.default ?? 50 })
+  const first = scenarios[0]
+  const firstGoroutines = first.params.find((p) => p.name === 'goroutines')?.default ?? 50
+  await run({ scenario: first.id, gomaxprocs: 4, goroutines: firstGoroutines })
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
@@ -161,8 +163,10 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
       if (dismissed) return // only nag once per session
       title.textContent = info?.title ?? 'Планировщик Go'
       body.innerHTML =
-        '<b>P</b> — платформы (слоты выполнения, =GOMAXPROCS), <b>G</b> — горутины-гоферы. ' +
-        'Горутина бежит только стоя на P. Внизу — подпись, что происходит. ' +
+        '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
+        'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
+        '<b>M</b> — OS-поток: рантайм привязывает его к P, но трейс Go его не отдаёт, поэтому M здесь не рисуется. ' +
+        'Внизу — подпись, что происходит сейчас. ' +
         (info?.description ? `<br><span class="intro-teach">${info.description}</span>` : '')
       card.style.display = 'block'
       close.addEventListener('click', () => (dismissed = true), { once: true })

@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Texture, type FederatedPointerEvent } from 'pixi.js'
 import type { GState, GoroutineView, WorldState } from '../player/state'
 import type { Timeline, TimelineEvent } from '../model/timeline'
-import { gcSummary, stwInWindow, isPlaybackStep, type GcSummary } from '../player/gc'
+import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { stealBurst, STEAL_LOOKBACK_NS } from '../player/steal'
 import { PAL, stateColors } from './palette'
 import { gopherCanvas, type GopherOpts } from './drawgopher'
@@ -25,7 +25,7 @@ const POOF_MS = 320
 // truly freezes, but only for an instant) — never a long held freeze, which would
 // misrepresent modern Go's whole achievement. The honest duration lives in the
 // caption ("84µs") and the to-scale GC strip; this is just a visible cue.
-const STW_FLASH_MS = 320
+// STW_FLASH_MS is shared with the chrome banner (see player/gc.ts) so both fade together.
 const GLOW_MS = 600
 
 const STATE_RU: Record<GState, string> = {

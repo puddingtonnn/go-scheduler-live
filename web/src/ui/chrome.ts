@@ -4,8 +4,8 @@ import type { Scene } from '../scene/scene'
 import { PAL } from '../scene/palette'
 import { stationPositions, type Pt } from '../scene/iso'
 import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals } from '../scene/layout'
-import { narrate } from '../player/narrate'
-import { gcSummary, stwInWindow, isPlaybackStep, type GcSummary } from '../player/gc'
+import { narrate, captionWindowNs } from '../player/narrate'
+import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
 
 // Chrome is the DOM layer over the pixel canvas: header (title + scenario subtitle
@@ -17,14 +17,16 @@ import { gcPhase, heapPct, waitingBreakdown } from './derive'
 
 type ZoneKey = 'pstation' | 'local' | 'global' | 'waiting' | 'syscall'
 
-const LEGEND: ReadonlyArray<readonly [string, string]> = [
-  ['Выполняется', PAL.running],
-  ['В очереди', PAL.runnable],
-  ['Ожидание', PAL.waiting],
-  ['Syscall', PAL.syscall],
-  ['GC mark', PAL.teal],
-  ['STW', PAL.gcStw],
-  ['Завершён', PAL.dead],
+// Each legend entry carries a hover tip so the jargon (runnable/syscall/mark/STW)
+// is teachable in place, for a viewer who has never seen the scheduler.
+const LEGEND: ReadonlyArray<readonly [string, string, string]> = [
+  ['Выполняется', PAL.running, 'Горутина бежит на P — прямо сейчас занимает слот выполнения'],
+  ['В очереди', PAL.runnable, 'Готова бежать, ждёт свободный P (runnable)'],
+  ['Ожидание', PAL.waiting, 'Заблокирована: канал, sync, сон, GC-ассист — P не занимает'],
+  ['Syscall', PAL.syscall, 'Вызов ОС; на время syscall P отвязывается и может уйти другому потоку (M)'],
+  ['GC mark', PAL.teal, 'Конкурентная разметка: GC работает ОДНОВРЕМЕННО с горутинами (это не пауза)'],
+  ['STW', PAL.gcStw, 'Stop-the-world: рантайм замирает на десятки мкс, чтобы завершить фазу GC'],
+  ['Завершён', PAL.dead, 'Горутина отработала и исчезает'],
 ]
 
 // fmtNs renders a real nanosecond duration in the most legible unit.
@@ -44,7 +46,8 @@ export class Chrome {
   private timeline: Timeline | null = null
   private gc: GcSummary = { cycles: 0, stw: [], mark: [], maxStwNs: 0 }
   private lastT = -1
-  private stwHold = 0 // frames to keep the STW banner up after a sub-frame pause
+  private stwBannerMs = 0 // wall-clock ms remaining to hold the STW banner after a sub-frame pause
+  private lastNowMs = 0 // performance.now() at the previous update, for framerate-independent decay
 
   private readonly subtitle: HTMLSpanElement
   private readonly gcDot: HTMLSpanElement
@@ -75,6 +78,7 @@ export class Chrome {
     this.gcLabel = el('span', 'gc-label', 'GC: простой')
     this.gcReadout = el('span', 'gc-readout', '')
     const gc = el('div', 'gc')
+    gc.title = 'Фаза сборщика мусора: простой · конкурентная разметка (идёт вместе с горутинами) · stop-the-world (короткая пауза всего рантайма)'
     gc.append(this.gcDot, this.gcLabel, this.gcReadout)
 
     this.heapFill = el('div', 'heap-fill')
@@ -82,6 +86,7 @@ export class Chrome {
     heapBar.append(this.heapFill, el('div', 'heap-goal'))
     this.heapPctEl = el('span', 'heap-pct', '—')
     const heap = el('div', 'heap')
+    heap.title = 'Куча: живой размер как доля от цели GC (100% = цель). Цвет = фаза GC: серый — простой, бирюза — разметка, красный — STW'
     heap.append(el('span', 'heap-cap', 'куча'), heapBar, this.heapPctEl)
 
     const topRow = el('div', 'chrome-head')
@@ -93,6 +98,7 @@ export class Chrome {
     this.stripHead = el('div', 'gc-strip-head')
     this.stripTrack.append(this.stripHead)
     const strip = el('div', 'gc-strip')
+    strip.title = 'Хронология всего прогона: бирюзовые полосы — конкурентная разметка, красные тики — STW-паузы, белая линия — текущая позиция'
     strip.append(el('span', 'gc-strip-cap', 'GC'), this.stripTrack)
 
     this.header = el('header', 'chrome-header')
@@ -100,11 +106,12 @@ export class Chrome {
 
     // --- legend ---
     this.legend = el('div', 'chrome-legend')
-    for (const [name, color] of LEGEND) {
+    for (const [name, color, tip] of LEGEND) {
       const dot = el('span', 'dot')
       dot.style.background = color
       dot.style.boxShadow = `0 0 5px ${color}88`
       const item = el('span', 'leg-item')
+      item.title = tip
       item.append(dot, document.createTextNode(name))
       this.legend.append(item)
     }
@@ -112,15 +119,21 @@ export class Chrome {
       el(
         'div',
         'legend-note',
-        'Локальные очереди и кража работы — реконструкция из трейса (рантайм их не пишет): горутины раскладываем по P, простаивающий P подсвечивается при краже. GC-фазы, куча и STW — настоящие данные трейса.',
+        'Локальные очереди и кража работы — реконструкция из трейса (рантайм их не пишет): горутины раскладываем ' +
+          'по P (в лейне видны первые 6 — у реального P ёмкость 256, остальные уходят в глобальную очередь), ' +
+          'простаивающий P подсвечивается при краже. GC-фазы, STW и куча — настоящие данные трейса: куча ' +
+          'даунсэмплится (≥2 мс) и показана как доля от цели (цель мягкая — куча может её слегка превышать); ' +
+          'фазы sweep и mark-assist опущены, а конкурентная разметка ещё забирает ~25% CPU у фоновых GC-воркеров. ' +
+          'M (OS-потоки) трейс Go не отдаёт — здесь не показаны.',
       ),
     )
 
     // --- zone pills ---
     const over: Partial<Record<ZoneKey, HTMLSpanElement>> = {}
-    const pill = (key: ZoneKey, text: string, color: string, center: boolean): HTMLDivElement => {
+    const pill = (key: ZoneKey, text: string, color: string, center: boolean, tip: string): HTMLDivElement => {
       const e = el('div', center ? 'zone-pill center' : 'zone-pill')
       e.style.color = color
+      e.title = tip
       e.append(document.createTextNode(text))
       const ov = el('span', 'zone-over')
       e.append(ov)
@@ -128,15 +141,15 @@ export class Chrome {
       stage.append(e)
       return e
     }
-    const waiting = pill('waiting', 'Ожидание', PAL.waiting, true)
+    const waiting = pill('waiting', 'Ожидание', PAL.waiting, true, 'Заблокированные горутины: канал, sync, сон, GC-ассист — P не занимают')
     this.waitSub = el('span', 'zone-sub')
     waiting.append(this.waitSub)
     this.pills = {
-      pstation: pill('pstation', 'P-станции · выполнение', PAL.running, true),
-      local: pill('local', 'локальные очереди', PAL.runnable, true),
-      global: pill('global', 'Глобальная очередь', PAL.runnable, true),
+      pstation: pill('pstation', 'P-станции · выполнение', PAL.running, true, 'Слоты выполнения (=GOMAXPROCS); на каждом не больше одной бегущей горутины'),
+      local: pill('local', 'локальные очереди', PAL.runnable, true, 'Горутины, приписанные к своему P — реконструкция (рантайм очереди не пишет)'),
+      global: pill('global', 'Глобальная очередь', PAL.runnable, true, 'Горутины без своего P или перелившиеся из полной локальной очереди'),
       waiting,
-      syscall: pill('syscall', 'Syscall', PAL.syscall, true),
+      syscall: pill('syscall', 'Syscall', PAL.syscall, true, 'Горутины в системном вызове ОС; P на это время может уйти другому потоку'),
     }
     this.over = over as Record<ZoneKey, HTMLSpanElement>
 
@@ -172,7 +185,8 @@ export class Chrome {
     this.timeline = tl
     this.gc = gcSummary(tl)
     this.lastT = -1
-    this.stwHold = 0
+    this.stwBannerMs = 0
+    this.lastNowMs = 0
     this.renderStrip()
   }
 
@@ -241,27 +255,37 @@ export class Chrome {
     if (dur > 0) this.stripHead.style.left = `${Math.max(0, Math.min(100, (world.t / dur) * 100))}%`
 
     // detect a stop-the-world crossed in this playback step → flash the banner with
-    // its REAL duration (the scene flashes the vignette from the same data).
+    // its REAL duration (the scene flashes the vignette from the same data). The
+    // hold decays on wall-clock ms (not per-frame), so its duration is the same on
+    // 60Hz and 120Hz displays and stays in step with the scene's vignette.
     const t = world.t
+    const nowMs = performance.now()
+    const deltaMs = this.lastNowMs ? nowMs - this.lastNowMs : 0
+    this.lastNowMs = nowMs
     let stwNs = 0
     if (isPlaybackStep(this.lastT, t, dur)) {
       const stw = stwInWindow(this.gc, this.lastT, t)
       if (stw) {
         stwNs = stw.ns
-        this.stwHold = 1
+        this.stwBannerMs = STW_FLASH_MS
       }
     }
     this.lastT = t
-    if (this.stwHold > 0) this.stwHold = Math.max(0, this.stwHold - 0.05)
+    if (this.stwBannerMs > 0) this.stwBannerMs = Math.max(0, this.stwBannerMs - deltaMs)
 
-    // caption: a fresh STW gets the spotlight with its real µs; otherwise narrate.
-    const cap = stwNs > 0 ? `Stop-the-world: мир замер на ${fmtNs(stwNs)}` : narrate(this.timeline?.events ?? [], t, world.gcActive)
+    // caption: a fresh STW gets the spotlight with its real µs; otherwise narrate,
+    // with a look-back window scaled to this run's length (short traces would
+    // otherwise leave the caption stale for seconds of wall time).
+    const cap =
+      stwNs > 0
+        ? `Stop-the-world: мир замер на ${fmtNs(stwNs)}`
+        : narrate(this.timeline?.events ?? [], t, world.gcActive, captionWindowNs(dur))
     if (cap !== this.last.cap) {
       this.last.cap = cap
       this.caption.textContent = cap
       this.caption.style.display = cap ? 'block' : 'none'
     }
-    const showBanner = this.stwHold > 0
+    const showBanner = this.stwBannerMs > 0
     if (showBanner !== (this.banner.style.display === 'block')) {
       this.banner.style.display = showBanner ? 'block' : 'none'
     }

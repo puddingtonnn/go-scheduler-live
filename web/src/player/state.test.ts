@@ -73,6 +73,21 @@ describe('stateAt', () => {
     expect(s.procs[0].gid).toBe(NO_RESOURCE)
   })
 
+  it('excludes the tracer start-trace stop-the-world from gcActive', () => {
+    // "stop-the-world (start trace)" is the tracer starting up, not a GC pause;
+    // it must not surface as a GC phase (else the header/caption falsely read STW
+    // at t=0, before anything has run). A real GC STW still shows.
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world (start trace)' },
+        { t: 2, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world (GC mark termination)' },
+      ]),
+      2,
+    )
+    expect(s.gcActive).not.toContain('stop-the-world (start trace)')
+    expect(s.gcActive).toContain('stop-the-world (GC mark termination)')
+  })
+
   it('tracks active GC ranges and heap metrics', () => {
     const s = stateAt(
       tl([

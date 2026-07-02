@@ -28,10 +28,19 @@ export interface GcSummary {
   maxStwNs: number
 }
 
-// "stop-the-world (start trace)" is the tracer starting up, not a GC pause, so it
-// is excluded — counting it would inflate the longest-STW readout misleadingly.
-const isStw = (name: string): boolean => name.includes('stop-the-world') && !name.includes('start trace')
+// isTracerArtifact flags the "stop-the-world (start trace)" range: the tracer
+// starting up, NOT a GC pause. It must be excluded everywhere a GC phase is shown
+// (STW readout, gcActive, header, caption) — otherwise the UI falsely reads
+// stop-the-world at t=0, before any goroutine has run.
+export const isTracerArtifact = (name: string): boolean => name.includes('start trace')
+
+const isStw = (name: string): boolean => name.includes('stop-the-world') && !isTracerArtifact(name)
 const isMark = (name: string): boolean => name.includes('mark phase')
+
+// STW_FLASH_MS is the wall-clock duration of the stop-the-world display cue (the
+// scene's red vignette blink and the chrome banner). Shared so both fade in step.
+// A real STW is sub-millisecond; this is only a visible flash, never a held freeze.
+export const STW_FLASH_MS = 320
 
 // gcSummary pairs each gc_range_begin with its matching gc_range_end (by name,
 // LIFO) and buckets the closed intervals into STW vs concurrent-mark.

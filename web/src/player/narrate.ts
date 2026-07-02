@@ -11,13 +11,25 @@ import { stealBurst, pluralGor, STEAL_LOOKBACK_NS } from './steal'
 // and lied for ~8ms of trace time, i.e. seconds of wall time at 1x). Point events
 // (steals, blocks, exits) still come from a short look-back window.
 
-const WINDOW_NS = STEAL_LOOKBACK_NS // look back for a notable point event (steal/block/exit)
+// captionWindowNs bounds the caption's look-back to the smaller of the 8ms steal
+// window and 1% of the whole run, so a short trace (e.g. workstealing ~39ms, where
+// a fixed 8ms is ~20% of the timeline and would persist ~9s of wall time at 1x)
+// does not leave the caption describing something that scrolled off long ago.
+export function captionWindowNs(durationNs: number): number {
+  return Math.max(1, Math.min(STEAL_LOOKBACK_NS, Math.round(durationNs * 0.01)))
+}
 
-export function narrate(events: TimelineEvent[], t: number, gcActive: string[]): string {
+export function narrate(
+  events: TimelineEvent[],
+  t: number,
+  gcActive: string[],
+  windowNs: number = STEAL_LOOKBACK_NS,
+): string {
   let bestSal = -1
   let bestText = ''
   const consider = (sal: number, text: string): void => {
-    // ">=" keeps the latest among equally-salient events (events iterate in time order).
+    // Precedence: higher salience always wins (STW > mark > steal > block > exit);
+    // among equal salience, ">=" keeps the latest (events iterate in time order).
     if (sal >= bestSal) {
       bestSal = sal
       bestText = text
@@ -30,12 +42,12 @@ export function narrate(events: TimelineEvent[], t: number, gcActive: string[]):
 
   // Steals are narrated as a batch (P took N): the runtime grabs ~half a victim's
   // queue at once, not the per-goroutine flag we reconstruct.
-  const burst = stealBurst(events, t, WINDOW_NS)
+  const burst = stealBurst(events, t, windowNs)
   if (burst) consider(3, `P${burst.pid} забрал ${burst.count} ${pluralGor(burst.count)}`)
 
   for (const e of events) {
     if (e.t > t) break
-    if (e.t < t - WINDOW_NS) continue
+    if (e.t < t - windowNs) continue
     if (e.type === 'g_block') consider(2, `G${e.gid} заблокирован: ${e.reason ?? '?'}`)
     else if (e.type === 'g_exit') consider(1, `G${e.gid} завершилась`)
   }
