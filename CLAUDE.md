@@ -100,7 +100,7 @@
   `player/*`** — корректность, не дизайн); play-кнопка/пробел синхронят лейбл; зажим
   `goroutines` по диапазону сценария; видимая ошибка вместо пустой страницы; подпись
   «чему учит сценарий» + dismissible intro-карточка; a11y (`aria-pressed`, `role`).
-  Контракт «18/18 контролов» проверяется `web/scripts/verify-controls.mjs` (Playwright).
+  Контракт «19/19 контролов» проверяется `web/scripts/verify-controls.mjs` (Playwright; было 18, +тоггл M).
 - **Бэкенд НЕ тронут**, `player/*` — только правка `step()`. Чистая логика (`gcSummary`,
   `isPlaybackStep`, `placeIso`, `narrate`) под vitest; визуал — харнессы `shoot*.mjs` +
   `verify-controls.mjs`.
@@ -116,14 +116,44 @@
   фикс. 8мс = ~20% таймлайна ⇒ подпись «залипала» ~9с при 1x. STEAL_LOOKBACK_NS в сцене не тронут.
 - **Баннер STW — по стенным часам, не по кадрам.** `chrome.stwBannerMs -= deltaMs` (performance.now),
   общий `STW_FLASH_MS` вынесен в `gc.ts` и разделён со сценой → одинаково на 60/120 Гц, в такт виньетке.
-- **M честно оговорён:** трейс `x/exp/trace` M-события не отдаёт → бренд «G·M·P» оставлен, но интро
-  объясняет «M — OS-поток, здесь не рисуется». Тултипы на легенду/зоны/GC-строку/кучу/GOMAXPROCS;
+- **M честно оговорён** *(устарело: M теперь рисуется — см. слайс «M-визуализация» ниже)*: тогда
+  интро объясняло «M здесь не рисуется». Тултипы на легенду/зоны/GC-строку/кучу/GOMAXPROCS;
   сноска честности в легенде (cap 6 vs реальные 256, мягкая цель кучи, sweep/mark-assist опущены,
   даунсэмпл ≥2мс, ~25% CPU у mark-воркеров).
 - **Правки затронули `player/*`** (`narrate.ts`, `gc.ts`, `state.ts` — выше «только step()» устарело).
   Бэкенд — только комментарий про лимит `maxProcs`. Отложено (осознанно): визуал overshoot кучи,
   показ 25% CPU в мире, переработка эвристики кражи. Всё зелёное: tsc, 67 vitest, `go test`,
   `vite build`, 18/18 `verify-controls`.
+
+## M-визуализация: OS-потоки в мире (ветка `feat/pixel-art`)
+M теперь рисуется. Ключевой факт: lifecycle-событий M трейс не отдаёт, но **каждое событие несёт
+id исполняющего M** (`exptrace.Event.Thread()`); это реальные данные, не реконструкция. План:
+`~/.claude/plans/delightful-juggling-shore.md`; спек: `docs/superpowers/specs/2026-07-02-m-threads-visualization-design.md`.
+- **Бэкенд.** `timeline.Event.MID int64 json:"mid"` (НЕ omitempty, M0 валиден) + `threadID()` в
+  `traceparse` (зеркало `procID`); range/metric → `NoResource`. `api`/`build.go` не тронуты.
+- **Семантика mid (ловушка!):** `ev.Thread()` = M *исполняющего контекста*. На `g_unblock`/`g_create`
+  это M разбудившего/создателя (НЕ целевой G), на p_stop от ProcSteal — M вора. Привязка только на
+  own-execution: `g_run_start`/`g_syscall_enter`/`g_syscall_exit` (G и P), `p_start` (P);
+  `g_unblock` и т.п. — только сброс. Таблица привязки — в `stateAt` (`GoroutineView.mid`,
+  `ProcView.mid`) под vitest; те же инварианты зеркалом в `TestSchedulerInvariants` (M ≤ 1 G,
+  согласованность (P,M), тот-же-M на syscall-exit).
+- **Сценарий `syscalls`** (`//go:build unix`, Order 2, gcpressure → 3): N читателей блокируются в
+  сырых `syscall.Read` из pipe, GOMAXPROCS спиннеров держат P занятыми (`npidle==0` → sysmon
+  retake), фидер будит по кругу (пейсинг `busyFor`). Shutdown: фидер закрывает write-концы (EOF
+  читателям) → `wg.Wait()` → закрыть read-концы. Анти-регрессия: сабтест «syscalls blocks…» требует
+  ≥5 `g_syscall_enter` и ≥2 разных MID на одном P (реально наблюдалось: 400+ enter, до 13 M на P).
+- **Сцена.** Тележка-«носитель» M (`drawthread.ts` ~20×12, PAL.thread/threadD + блинк-лампа;
+  `thread.ts` — обёртка как `gopher.ts`, пилюля-бирка продублирована осознанно). `placeThreads`
+  (layout.ts, чистая): M в syscall → под своим гофером (едут вместе, lerp общий), иначе → док у
+  станции P (и на пустой P — «M ищет работу»); при `_Psyscall`-зазоре побеждает syscall-сторона.
+  Один слой с гоферами (`zIndex = y − 0.5`), STW → frozen-текстура, паркованный M исчезает сразу.
+- **Алиасы M:** darwin ThreadID гигантский (напр. 6103904256) → на бирке порядковый номер по
+  первому появлению (`midAliases`, чистая), реальный id — в тултипе тележки. Сброс тележек на
+  `loadTimeline` (id нового прогона не смешиваются).
+- **Хром/контролы:** пункт легенды «M — OS-поток», сноска честности переписана (порядковые номера,
+  спящие M невидимы), интро-фраза про M заменена, тултип syscall-пилюли про уход M; кнопка «M»
+  (зеркало «id»-тоггла: `toggleThreads`, `aria-pressed`), «id»-тоггл прячет и бирки M. Контракт
+  контролов: **19/19**.
 
 ## Conventions
 - `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
@@ -161,3 +191,7 @@
   P уже забрали) → `g_unblock`; иначе она «залипает» в syscall. Корректность модели
   закреплена `TestSchedulerInvariants` (`tracerun`): на всех сценариях одновременно
   бегущих горутин = как в сыром трейсе и ≤ GOMAXPROCS, без двойных стартов/конфликтов P.
+- **Netpoller-ловушка:** `os.Pipe`/`os.File` читаются через поллер → G паркуется как
+  Waiting, M НЕ блокируется, `g_syscall_enter` не появляется. Для настоящего блокирующего
+  syscall (и M↔P handoff) нужны сырые `syscall.Pipe` + `syscall.Read` (blocking fd) — так
+  сделан сценарий `syscalls`. `time.Sleep` — тоже не syscall (таймер-парковка).

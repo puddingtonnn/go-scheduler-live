@@ -100,6 +100,7 @@ func rangeEvent(typ timeline.EventType, ev exptrace.Event, rel func(exptrace.Tim
 		Type: typ,
 		GID:  timeline.NoResource,
 		PID:  timeline.NoResource,
+		MID:  timeline.NoResource,
 		Name: ev.Range().Name,
 	}
 }
@@ -117,6 +118,7 @@ func metricEvent(ev exptrace.Event, rel func(exptrace.Time) int64) (timeline.Eve
 		Type:  timeline.EventMetric,
 		GID:   timeline.NoResource,
 		PID:   timeline.NoResource,
+		MID:   timeline.NoResource,
 		Name:  m.Name,
 		Value: m.Value.Uint64(),
 	}, true
@@ -138,6 +140,7 @@ func mapTransition(ev exptrace.Event, rel func(exptrace.Time) int64) (timeline.E
 			Type: typ,
 			GID:  int64(st.Resource.Goroutine()),
 			PID:  procID(ev.Proc()),
+			MID:  threadID(ev.Thread()),
 		}
 		if typ == timeline.EventGBlock {
 			e.Reason = st.Reason
@@ -155,6 +158,7 @@ func mapTransition(ev exptrace.Event, rel func(exptrace.Time) int64) (timeline.E
 			Type: typ,
 			GID:  timeline.NoResource,
 			PID:  int64(st.Resource.Proc()),
+			MID:  threadID(ev.Thread()),
 		}, true
 	}
 	return timeline.Event{}, false
@@ -164,6 +168,16 @@ func mapTransition(ev exptrace.Event, rel func(exptrace.Time) int64) (timeline.E
 // P (e.g. unblocked by the netpoller) maps to NoResource.
 func procID(p exptrace.ProcID) int64 {
 	if id := int64(p); id >= 0 {
+		return id
+	}
+	return timeline.NoResource
+}
+
+// threadID normalizes an executing-thread id (NoThread maps to NoResource).
+// The trace has no M lifecycle events; this is the M of the context that
+// emitted the event — see the semantics note on timeline.Event.
+func threadID(m exptrace.ThreadID) int64 {
+	if id := int64(m); id >= 0 {
 		return id
 	}
 	return timeline.NoResource

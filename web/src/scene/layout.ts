@@ -1,4 +1,5 @@
 import type { WorldState } from '../player/state'
+import type { TimelineEvent } from '../model/timeline'
 import { stationPositions, type Pt } from './iso'
 
 // placeIso maps each live goroutine to a position+scale in the base (576x330)
@@ -95,6 +96,57 @@ export function zoneTotals(world: WorldState, numProcs: number): ZoneTotals {
   const local = homed.map((n) => Math.min(n, CAPS.local))
   const global = homed.reduce((s, n) => s + Math.max(0, n - CAPS.local), 0)
   return { local, global, waiting, syscall }
+}
+
+// midAliases maps every real thread id in the trace to a small display ordinal
+// (1, 2, 3… in first-seen order). Real ThreadIDs on darwin are huge mach ids
+// (e.g. 6103904256) that would never fit a sprite tag; the ordinal is a stable
+// per-run alias, and the tooltip still reports the real id. Pure.
+export function midAliases(events: TimelineEvent[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (const e of events) {
+    if (e.mid >= 0 && !out.has(e.mid)) out.set(e.mid, out.size + 1)
+  }
+  return out
+}
+
+// M (OS thread) placement offsets relative to its anchor.
+export const THREAD_ST_DX = 13 // front-right of the P platform, clear of the gopher
+export const THREAD_ST_DY = 7
+export const THREAD_SYS_DY = 6 // just below a syscall gopher's feet
+
+// placeThreads maps each *visible* M to a position: with the syscall gopher it
+// is blocked under (same spot, so they travel together), or docked at the P
+// station it owns. Parked Ms have no trace events and are honestly absent.
+// Takes the already-computed placeIso result so a syscall M lands exactly on
+// its gopher. During the brief _Psyscall gap one M can be both "in syscall"
+// and still own the P — the syscall side wins (one M, one sprite). Pure.
+export function placeThreads(
+  world: WorldState,
+  numProcs: number,
+  gophers: Map<number, Placement>,
+): Map<number, Placement> {
+  const out = new Map<number, Placement>()
+  const stations = stationPositions(numProcs)
+
+  const gids = [...world.goroutines.keys()].sort((a, b) => a - b)
+  for (const gid of gids) {
+    const v = world.goroutines.get(gid)!
+    if (v.state !== 'syscall' || v.mid < 0) continue
+    const g = gophers.get(gid)
+    if (!g) continue // gopher beyond CAPS.syscall — the "+N" badge covers its M too
+    out.set(v.mid, { x: g.x, y: g.y + THREAD_SYS_DY * g.scale, scale: g.scale })
+  }
+
+  for (const p of world.procs) {
+    if (p.mid < 0 || out.has(p.mid)) continue
+    const st = stations[p.pid]
+    if (!st) continue
+    // Docked whether or not a G is running: "an M parked on its P looking for
+    // work" is real, and it makes the syscall handoff readable.
+    out.set(p.mid, { x: st.x + THREAD_ST_DX, y: st.y + THREAD_ST_DY, scale: 1 })
+  }
+  return out
 }
 
 export function placeIso(world: WorldState, numProcs: number): Map<number, Placement> {

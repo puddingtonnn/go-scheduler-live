@@ -17,8 +17,10 @@ import {
   WORLD_H,
   type Pt,
 } from './iso'
-import { GLOBAL, WAITING, SYSCALL, placeIso } from './layout'
+import { GLOBAL, WAITING, SYSCALL, placeIso, placeThreads, midAliases } from './layout'
 import { makeGopher, type Gopher } from './gopher'
+import { threadCanvas } from './drawthread'
+import { makeThread, type ThreadSprite } from './thread'
 
 const POOF_MS = 320
 // STW is a real but sub-millisecond pause; we flash it as a brief blink (the world
@@ -81,6 +83,31 @@ function bakeTextures() {
 
 const FPS: Record<AnimKind, number> = { running: 8, runnable: 0, waiting: 4, syscall: 3, dead: 0 }
 
+interface TRec {
+  t: ThreadSprite
+  tx: number
+  ty: number
+  scale: number
+  phase: number
+  tip: string
+}
+
+// bakeThreadTextures bakes the M carrier's frames: a 2-frame status-lamp blink
+// plus the STW frozen recolor. NEAREST, like every sprite in the world.
+function bakeThreadTextures() {
+  const t = (o: Parameters<typeof threadCanvas>[0]): Texture => {
+    const tx = Texture.from(threadCanvas(o))
+    tx.source.scaleMode = 'nearest'
+    return tx
+  }
+  return {
+    idle: [t({ lit: true }), t({ lit: false })],
+    frozen: t({ frozen: true }),
+  }
+}
+
+const THREAD_BLINK_FPS = 2
+
 // Scene renders the isometric pixel-art world: floor grid + cozy props + N
 // P-stations (with idle-P markers), zone floor platters, and one gopher Sprite per
 // goroutine placed+scaled by placeIso and depth-sorted by screen-y. A steal shows
@@ -92,6 +119,7 @@ export class Scene {
   onLayout?: () => void
 
   private gophers = new Map<number, Rec>()
+  private threads = new Map<number, TRec>()
   private readonly world = new Container()
   private readonly grid = new Graphics()
   private readonly stationsG = new Graphics()
@@ -100,7 +128,9 @@ export class Scene {
   private readonly gopherLayer = new Container()
   private readonly stwOverlay = new Graphics()
   private readonly tex = bakeTextures()
+  private readonly ttex = bakeThreadTextures()
   private showIds = true
+  private showThreads = true
   private animT = 0
   private tooltip!: HTMLDivElement
   private scale = 1
@@ -109,6 +139,7 @@ export class Scene {
 
   // event-cue state
   private events: TimelineEvent[] = []
+  private midAlias = new Map<number, number>()
   private gc: GcSummary = { cycles: 0, stw: [], mark: [], maxStwNs: 0 }
   private durationNs = 0
   private lastT = -1
@@ -147,6 +178,8 @@ export class Scene {
     this.numProcs = numProcs
     for (const rec of this.gophers.values()) rec.g.container.destroy()
     this.gophers.clear()
+    for (const rec of this.threads.values()) rec.t.container.destroy()
+    this.threads.clear()
     this.buildStatics()
   }
 
@@ -154,6 +187,11 @@ export class Scene {
   // and reset its step-window tracking.
   loadTimeline(tl: Timeline): void {
     this.events = tl.events
+    this.midAlias = midAliases(tl.events)
+    // A new run means new thread ids: drop stale carriers so their labels
+    // never mix aliases across runs.
+    for (const rec of this.threads.values()) rec.t.container.destroy()
+    this.threads.clear()
     this.gc = gcSummary(tl)
     this.durationNs = tl.meta.durationNs
     this.lastT = -1
@@ -169,7 +207,14 @@ export class Scene {
   toggleIds(): boolean {
     this.showIds = !this.showIds
     for (const rec of this.gophers.values()) rec.g.showLabel(this.showIds)
+    for (const rec of this.threads.values()) rec.t.showLabel(this.showIds)
     return this.showIds
+  }
+
+  toggleThreads(): boolean {
+    this.showThreads = !this.showThreads
+    for (const rec of this.threads.values()) rec.t.container.visible = this.showThreads
+    return this.showThreads
   }
 
   private buildStatics(): void {
@@ -247,6 +292,26 @@ export class Scene {
         this.gophers.delete(gid)
       }
     }
+
+    // M carriers: docked at their P or under their syscall gopher. A vanished
+    // M (parked — no more trace presence) honestly disappears.
+    const tp = placeThreads(world, this.numProcs, places)
+    for (const [mid, p] of tp) {
+      let rec = this.threads.get(mid)
+      if (!rec) rec = this.spawnThread(mid, p.x, p.y)
+      rec.tx = p.x
+      rec.ty = p.y
+      if (rec.scale !== p.scale) {
+        rec.scale = p.scale
+        rec.t.setScale(p.scale)
+      }
+      rec.tip = threadTip(mid, this.midAlias.get(mid), world)
+    }
+    for (const [mid, rec] of this.threads) {
+      if (tp.has(mid)) continue
+      rec.t.container.destroy()
+      this.threads.delete(mid)
+    }
   }
 
   private spawn(gid: number, x: number, y: number): Rec {
@@ -266,6 +331,27 @@ export class Scene {
     this.gopherLayer.addChild(c)
     const rec: Rec = { g, tx: x, ty: y, scale: 1, kind: 'runnable', phase: (gid % 17) * 0.37, dying: 0 }
     this.gophers.set(gid, rec)
+    return rec
+  }
+
+  private spawnThread(mid: number, x: number, y: number): TRec {
+    const t = makeThread(PAL.thread)
+    t.container.position.set(x, y)
+    t.container.zIndex = y - 0.5
+    t.container.visible = this.showThreads
+    t.setLabel(`M${this.midAlias.get(mid) ?? mid}`)
+    t.showLabel(this.showIds)
+
+    const c = t.container
+    c.eventMode = 'static'
+    c.cursor = 'pointer'
+    c.on('pointerover', (e: FederatedPointerEvent) => this.showThreadTip(mid, e))
+    c.on('pointermove', (e: FederatedPointerEvent) => this.positionTip(e))
+    c.on('pointerout', () => this.hideTip())
+
+    this.gopherLayer.addChild(c) // same layer: one depth-sort domain with the gophers
+    const rec: TRec = { t, tx: x, ty: y, scale: 1, phase: (mid % 7) * 0.5, tip: '' }
+    this.threads.set(mid, rec)
     return rec
   }
 
@@ -316,6 +402,15 @@ export class Scene {
       this.applyMotion(rec, frozen)
       rec.g.setTexture(frozen ? this.tex.frozen : this.frameFor(rec))
     }
+
+    for (const rec of this.threads.values()) {
+      const c = rec.t.container
+      c.x += (rec.tx - c.x) * k
+      c.y += (rec.ty - c.y) * k
+      c.zIndex = c.y - 0.5 // just under its gopher when they overlap exactly
+      const i = Math.floor(this.animT * THREAD_BLINK_FPS + rec.phase) % this.ttex.idle.length
+      rec.t.setTexture(frozen ? this.ttex.frozen : this.ttex.idle[i])
+    }
   }
 
   private frameFor(rec: Rec): Texture {
@@ -350,7 +445,15 @@ export class Scene {
   private showTip(gid: number, e: FederatedPointerEvent): void {
     const view = this.gophers.get(gid)?.view
     if (!view) return
-    this.tooltip.textContent = formatTip(gid, view)
+    this.tooltip.textContent = formatTip(gid, view, this.midAlias.get(view.mid))
+    this.tooltip.style.display = 'block'
+    this.positionTip(e)
+  }
+
+  private showThreadTip(mid: number, e: FederatedPointerEvent): void {
+    const tip = this.threads.get(mid)?.tip
+    if (!tip) return
+    this.tooltip.textContent = tip
     this.tooltip.style.display = 'block'
     this.positionTip(e)
   }
@@ -366,12 +469,31 @@ export class Scene {
   }
 }
 
-function formatTip(gid: number, view: GoroutineView): string {
+function formatTip(gid: number, view: GoroutineView, midAlias?: number): string {
   let s = `G${gid} • ${STATE_RU[view.state]}`
   if (view.state === 'waiting' && view.reason) s += `: ${view.reason}`
   else if ((view.state === 'running' || view.state === 'syscall') && view.pid >= 0) s += ` (P${view.pid})`
+  if ((view.state === 'running' || view.state === 'syscall') && view.mid >= 0)
+    s += ` · M${midAlias ?? view.mid}`
   if (view.stolen && view.state === 'running') s += ' · украдена (реконстр.)'
   return s
+}
+
+// threadTip describes what an M is doing right now, from the world state: in a
+// syscall with its G, or bound to a P (carrying that P's runner, if any). The
+// label is the per-run ordinal alias; the real (huge) thread id stays here.
+function threadTip(mid: number, alias: number | undefined, world: WorldState): string {
+  const name = `M${alias ?? mid} • OS-поток (id ${mid})`
+  for (const v of world.goroutines.values()) {
+    if (v.state === 'syscall' && v.mid === mid) return `${name} · в syscall с G${v.gid}`
+  }
+  for (const p of world.procs) {
+    if (p.mid !== mid) continue
+    let s = `${name} · привязан к P${p.pid}`
+    if (p.gid >= 0) s += ` · несёт G${p.gid}`
+    return s
+  }
+  return name
 }
 
 function makeTooltip(parent: HTMLElement): HTMLDivElement {

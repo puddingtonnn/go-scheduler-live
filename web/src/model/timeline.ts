@@ -16,7 +16,7 @@ export type EventType =
   | 'gc_range_end'
   | 'metric'
 
-/** Sentinel for an absent goroutine/proc id (matches timeline.NoResource). */
+/** Sentinel for an absent goroutine/proc/thread id (matches timeline.NoResource). */
 export const NO_RESOURCE = -1
 
 export interface TimelineEvent {
@@ -25,6 +25,13 @@ export interface TimelineEvent {
   type: EventType
   gid: number
   pid: number
+  /**
+   * OS thread (M) of the *executing context*, verbatim from the trace.
+   * Careful: on g_unblock/g_create it is the unblocker's/creator's M (not the
+   * target goroutine's), and on a steal-caused p_stop it is the stealer's M.
+   * Bind an M to a G/P only on own-execution events — see stateAt.
+   */
+  mid: number
   reason?: string
   name?: string
   value?: number

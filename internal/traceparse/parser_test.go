@@ -60,6 +60,27 @@ func TestParseGolden(t *testing.T) {
 	if len(distinctG) < 50 {
 		t.Errorf("distinct goroutines = %d, want >= 50", len(distinctG))
 	}
+
+	// M (OS thread) ids come from each event's executing context. Execution
+	// events must carry a real mid; resource-less range/metric events must not.
+	distinctM := map[int64]struct{}{}
+	for i, e := range events {
+		switch e.Type {
+		case timeline.EventGRunStart, timeline.EventGSyscallEnter,
+			timeline.EventGSyscallExit, timeline.EventPStart:
+			if e.MID < 0 {
+				t.Fatalf("event %d (%s): MID = %d, want >= 0", i, e.Type, e.MID)
+			}
+			distinctM[e.MID] = struct{}{}
+		case timeline.EventGCRangeBegin, timeline.EventGCRangeEnd, timeline.EventMetric:
+			if e.MID != timeline.NoResource {
+				t.Fatalf("event %d (%s): MID = %d, want NoResource", i, e.Type, e.MID)
+			}
+		}
+	}
+	if len(distinctM) < 2 {
+		t.Errorf("distinct Ms on execution events = %d, want >= 2", len(distinctM))
+	}
 }
 
 // TestParseAndBuildReal exercises the full parse -> build pipeline on the real

@@ -25,6 +25,7 @@ export class Controls {
     private readonly scenarios: ScenarioInfo[],
     private readonly onRun: (p: RunParams) => void,
     private readonly onToggleIds?: () => boolean,
+    private readonly onToggleThreads?: () => boolean,
     private readonly onScenarioChange?: (info: ScenarioInfo) => void,
   ) {
     const bar = document.createElement('div')
@@ -49,6 +50,16 @@ export class Controls {
     // ids are shown by default in the scene, so the toggle starts active.
     idBtn.classList.add('active')
     idBtn.setAttribute('aria-pressed', 'true')
+
+    const mBtn = button('M', () => {
+      const on = this.onToggleThreads?.() ?? false
+      mBtn.classList.toggle('active', on)
+      mBtn.setAttribute('aria-pressed', String(on))
+    })
+    mBtn.title = 'показать OS-потоки (M)'
+    // M carriers are shown by default in the scene, so the toggle starts active.
+    mBtn.classList.add('active')
+    mBtn.setAttribute('aria-pressed', 'true')
 
     const speeds = document.createElement('div')
     speeds.className = 'speeds'
@@ -110,6 +121,7 @@ export class Controls {
       this.scrub,
       this.time,
       idBtn,
+      mBtn,
       sep(),
       labeled('сценарий', this.scenarioSel),
       labeled('GOMAXPROCS', this.procsInput),

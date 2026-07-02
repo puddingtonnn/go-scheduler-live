@@ -3,7 +3,7 @@ import { narrate, captionWindowNs } from './narrate'
 import { NO_RESOURCE, type TimelineEvent } from '../model/timeline'
 
 function ev(t: number, type: TimelineEvent['type'], extra: Partial<TimelineEvent> = {}): TimelineEvent {
-  return { t, type, gid: NO_RESOURCE, pid: NO_RESOURCE, ...extra }
+  return { t, type, gid: NO_RESOURCE, pid: NO_RESOURCE, mid: NO_RESOURCE, ...extra }
 }
 
 describe('narrate', () => {

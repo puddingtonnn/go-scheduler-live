@@ -22,7 +22,7 @@ func (gcPressure) Describe() ScenarioInfo {
 		ID:          "gcpressure",
 		Title:       "Давление на GC (аллокации)",
 		Description: "Горутины быстро плодят мусор: куча растёт, GC запускается циклами с фазами mark и stop-the-world.",
-		Order:       2,
+		Order:       3,
 		Params: []ParamSpec{
 			{Name: "goroutines", Min: 1, Max: 200, Default: 20},
 		},

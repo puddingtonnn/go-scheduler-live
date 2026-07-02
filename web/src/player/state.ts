@@ -14,6 +14,13 @@ export interface GoroutineView {
    * NO_RESOURCE (a blocked goroutine holds no P).
    */
   pid: number
+  /**
+   * OS thread (M) executing this goroutine (`running`) or blocked in the
+   * kernel together with it (`syscall`); NO_RESOURCE otherwise. Real ids from
+   * the trace — bound only on the goroutine's own execution events, because
+   * on g_unblock/g_create the event's mid belongs to the unblocker/creator.
+   */
+  mid: number
   reason?: string
   /** the current run started as a reconstructed steal. */
   stolen: boolean
@@ -23,6 +30,13 @@ export interface ProcView {
   pid: number
   /** the goroutine currently running on this P, or NO_RESOURCE. */
   gid: number
+  /**
+   * OS thread (M) that owns this P, or NO_RESOURCE. Kept through a running
+   * goroutine's syscall enter (the M holds the P in _Psyscall until sysmon
+   * takes it away, which arrives as p_stop) and through idle gaps between
+   * runs (the M stays on the P looking for work).
+   */
+  mid: number
 }
 
 export interface WorldState {
@@ -42,10 +56,14 @@ const metricHeapGoal = '/gc/heap/goal:bytes'
 // stateAt folds every event with t' <= t into the world state at time t. It is
 // pure (no clock, no rendering), which makes scrubbing trivial and the logic
 // unit-testable. Proc occupancy is derived from goroutine events; the explicit
-// p_start/p_stop events are kept in the data for later but not needed here.
+// p_start/p_stop events contribute only M ownership.
 export function stateAt(timeline: Timeline, t: number): WorldState {
   const n = timeline.meta.numProcs
-  const procs: ProcView[] = Array.from({ length: n }, (_, pid) => ({ pid, gid: NO_RESOURCE }))
+  const procs: ProcView[] = Array.from({ length: n }, (_, pid) => ({
+    pid,
+    gid: NO_RESOURCE,
+    mid: NO_RESOURCE,
+  }))
   const goroutines = new Map<number, GoroutineView>()
   const gcActive: string[] = []
   let heapLive: number | undefined
@@ -57,10 +75,13 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
   const clearProc = (pid: number, gid: number) => {
     if (pid >= 0 && pid < n && procs[pid].gid === gid) procs[pid].gid = NO_RESOURCE
   }
+  const setProcM = (pid: number, mid: number) => {
+    if (pid >= 0 && pid < n && mid >= 0) procs[pid].mid = mid
+  }
   const view = (gid: number): GoroutineView => {
     let v = goroutines.get(gid)
     if (!v) {
-      v = { gid, state: 'runnable', pid: NO_RESOURCE, stolen: false }
+      v = { gid, state: 'runnable', pid: NO_RESOURCE, mid: NO_RESOURCE, stolen: false }
       goroutines.set(gid, v)
     }
     return v
@@ -70,23 +91,34 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
     if (e.t > t) break
     switch (e.type) {
       case 'g_create':
-        goroutines.set(e.gid, { gid: e.gid, state: 'runnable', pid: e.pid, stolen: false })
+        // e.mid is the CREATOR's M — never bind it to the new goroutine.
+        goroutines.set(e.gid, {
+          gid: e.gid,
+          state: 'runnable',
+          pid: e.pid,
+          mid: NO_RESOURCE,
+          stolen: false,
+        })
         break
       case 'g_run_start': {
         const v = view(e.gid)
         v.state = 'running'
         v.pid = e.pid
+        v.mid = e.mid
         v.stolen = e.stolen ?? false
         v.reason = undefined
         setProc(e.pid, e.gid)
+        setProcM(e.pid, e.mid)
         break
       }
       case 'g_syscall_exit': {
         const v = view(e.gid)
         v.state = 'running'
         v.pid = e.pid
+        v.mid = e.mid // the M that blocked in the kernel is the one that returns
         v.stolen = false
         setProc(e.pid, e.gid)
+        setProcM(e.pid, e.mid)
         break
       }
       case 'g_run_stop': {
@@ -94,6 +126,7 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         clearProc(e.pid, e.gid)
         v.state = 'runnable'
         v.pid = e.pid
+        v.mid = NO_RESOURCE // the M stays on the P (procs keeps it), not on the G
         v.stolen = false
         break
       }
@@ -101,6 +134,9 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         const v = view(e.gid)
         v.state = 'runnable'
         v.pid = e.pid
+        // e.mid is the UNBLOCKER's M; and for syscall->runnable the goroutine's
+        // own M just parked. Either way: no M.
+        v.mid = NO_RESOURCE
         v.stolen = false
         break
       }
@@ -110,6 +146,7 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         v.state = 'waiting'
         v.reason = e.reason
         v.pid = NO_RESOURCE
+        v.mid = NO_RESOURCE
         v.stolen = false
         break
       }
@@ -118,7 +155,10 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         clearProc(e.pid, e.gid)
         v.state = 'syscall'
         v.pid = e.pid
+        v.mid = e.mid // the M blocks in the kernel together with its G
         v.stolen = false
+        // procs[pid].mid is left as-is: the M holds the P until sysmon takes
+        // it away, which shows up as an explicit p_stop.
         break
       }
       case 'g_exit': {
@@ -126,12 +166,18 @@ export function stateAt(timeline: Timeline, t: number): WorldState {
         clearProc(e.pid, e.gid)
         v.state = 'dead'
         v.pid = NO_RESOURCE
+        v.mid = NO_RESOURCE
         v.stolen = false
         break
       }
       case 'p_start':
+        // Proc occupancy is derived from goroutine events; p_start contributes
+        // the M acquiring this P.
+        setProcM(e.pid, e.mid)
+        break
       case 'p_stop':
-        // Proc occupancy is derived from goroutine events above.
+        // e.mid on a steal is the STEALER's M — just drop ownership.
+        if (e.pid >= 0 && e.pid < n) procs[e.pid].mid = NO_RESOURCE
         break
       case 'gc_range_begin':
         // Skip the tracer's start-trace STW artifact so it never reads as a GC

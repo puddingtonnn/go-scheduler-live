@@ -3,6 +3,7 @@ package tracerun
 import (
 	"bytes"
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,42 @@ func TestScenarioEvents(t *testing.T) {
 		}
 	})
 
+	// The whole M feature hangs on this: raw syscall.Read must bypass the
+	// netpoller (real g_syscall_enter events) and sysmon must hand the blocked
+	// M's P to another M (a P started by >= 2 distinct Ms).
+	t.Run("syscalls blocks in real syscalls and hands P to another M", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("syscalls scenario is unix-only (syscall.Pipe)")
+		}
+		ev := parse(t, Request{Scenario: "syscalls", GOMAXPROCS: 4, Goroutines: 8, Duration: 600 * time.Millisecond})
+		enters := 0
+		midsPerP := map[int64]map[int64]struct{}{}
+		for _, e := range ev {
+			switch e.Type {
+			case timeline.EventGSyscallEnter:
+				enters++
+			case timeline.EventPStart:
+				if e.MID >= 0 {
+					if midsPerP[e.PID] == nil {
+						midsPerP[e.PID] = map[int64]struct{}{}
+					}
+					midsPerP[e.PID][e.MID] = struct{}{}
+				}
+			}
+		}
+		if enters < 5 {
+			t.Errorf("g_syscall_enter events = %d, want >= 5 (reads are going through the netpoller?)", enters)
+		}
+		maxMs := 0
+		for _, ms := range midsPerP {
+			maxMs = max(maxMs, len(ms))
+		}
+		if maxMs < 2 {
+			t.Errorf("no P was started by two distinct Ms — syscall handoff not observed")
+		}
+		t.Logf("syscalls: %d events, %d syscall enters, max distinct Ms per P = %d", len(ev), enters, maxMs)
+	})
+
 	t.Run("gcpressure triggers GC mark phases and heap metrics", func(t *testing.T) {
 		ev := parse(t, Request{Scenario: "gcpressure", GOMAXPROCS: 4, Goroutines: 20, Duration: 700 * time.Millisecond})
 		var gcMark, metrics int
@@ -118,7 +155,11 @@ func TestSchedulerInvariants(t *testing.T) {
 	defer cancel()
 
 	const procs = 4
-	for _, sc := range []string{"workstealing", "pingpong", "gcpressure"} {
+	scens := []string{"workstealing", "pingpong", "gcpressure"}
+	if runtime.GOOS != "windows" {
+		scens = append(scens, "syscalls")
+	}
+	for _, sc := range scens {
 		t.Run(sc, func(t *testing.T) {
 			raw, err := Run(ctx, Request{Scenario: sc, GOMAXPROCS: procs, Goroutines: 30, Duration: 600 * time.Millisecond})
 			if err != nil {
@@ -131,6 +172,30 @@ func TestSchedulerInvariants(t *testing.T) {
 
 			running := map[int64]int64{}  // gid -> pid
 			occupant := map[int64]int64{} // pid -> gid
+			// M bindings mirror the frontend rule table: an M binds to a G only
+			// on own-execution events, unbinds when the G stops/blocks/exits or
+			// becomes runnable. mBusy is the reverse index for "one G per M".
+			gToM := map[int64]int64{}   // gid -> mid
+			mBusy := map[int64]int64{}  // mid -> gid
+			pOwner := map[int64]int64{} // pid -> mid
+			bindM := func(e timeline.Event) {
+				if e.MID < 0 {
+					return
+				}
+				if g, ok := mBusy[e.MID]; ok && g != e.GID {
+					t.Fatalf("M%d carries G%d and G%d at once at t=%d", e.MID, g, e.GID, e.T)
+				}
+				gToM[e.GID] = e.MID
+				mBusy[e.MID] = e.GID
+			}
+			unbindM := func(gid int64) {
+				if mid, ok := gToM[gid]; ok {
+					delete(gToM, gid)
+					if mBusy[mid] == gid {
+						delete(mBusy, mid)
+					}
+				}
+			}
 			maxRunning := 0
 			for _, e := range events {
 				switch e.Type {
@@ -141,15 +206,49 @@ func TestSchedulerInvariants(t *testing.T) {
 					if occ, ok := occupant[e.PID]; ok && occ != e.GID {
 						t.Fatalf("P%d already runs G%d when G%d started at t=%d", e.PID, occ, e.GID, e.T)
 					}
+					if e.Type == timeline.EventGSyscallExit {
+						// The M that entered the syscall is the one that returns.
+						if mid, ok := gToM[e.GID]; ok && e.MID >= 0 && mid != e.MID {
+							t.Fatalf("G%d entered syscall on M%d but exited on M%d at t=%d", e.GID, mid, e.MID, e.T)
+						}
+					}
+					if own, ok := pOwner[e.PID]; ok && e.MID >= 0 && own != e.MID {
+						t.Fatalf("G%d starts on P%d/M%d but P%d is owned by M%d at t=%d", e.GID, e.PID, e.MID, e.PID, own, e.T)
+					}
 					running[e.GID] = e.PID
 					occupant[e.PID] = e.GID
-				case timeline.EventGRunStop, timeline.EventGBlock, timeline.EventGSyscallEnter, timeline.EventGExit:
+					bindM(e)
+					if e.MID >= 0 && e.PID >= 0 {
+						pOwner[e.PID] = e.MID
+					}
+				case timeline.EventGSyscallEnter:
 					if pid, ok := running[e.GID]; ok {
 						delete(running, e.GID)
 						if occupant[pid] == e.GID {
 							delete(occupant, pid)
 						}
 					}
+					// The M blocks in the kernel together with its G: binding stays.
+					bindM(e)
+				case timeline.EventGRunStop, timeline.EventGBlock, timeline.EventGExit:
+					if pid, ok := running[e.GID]; ok {
+						delete(running, e.GID)
+						if occupant[pid] == e.GID {
+							delete(occupant, pid)
+						}
+					}
+					unbindM(e.GID)
+				case timeline.EventGUnblock:
+					// Covers syscall->runnable too (the G's own M parks). e.MID here
+					// is the UNBLOCKER's M — unbind the target G, never bind.
+					unbindM(e.GID)
+				case timeline.EventPStart:
+					if e.MID >= 0 {
+						pOwner[e.PID] = e.MID
+					}
+				case timeline.EventPStop:
+					// On a steal e.MID is the stealer's M; just drop ownership.
+					delete(pOwner, e.PID)
 				}
 				if n := len(running); n > maxRunning {
 					maxRunning = n

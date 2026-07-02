@@ -44,6 +44,8 @@ export const PAL = {
   deadD: '#393d52',
   froT: '#dbe4f4',
   froD: '#94a6c6',
+  thread: '#9db2c7',
+  threadD: '#5e768e',
   teal: '#34c9bf',
   tealD: '#1f8e88',
   gcIdle: '#6b7089',

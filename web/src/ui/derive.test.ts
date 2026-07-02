@@ -11,8 +11,8 @@ function world(partial: Partial<WorldState>): WorldState {
 // one (gid 900) that the breakdown must ignore.
 function waiters(reasons: (string | undefined)[]): WorldState {
   const goroutines = new Map<number, GoroutineView>()
-  reasons.forEach((reason, i) => goroutines.set(i, { gid: i, state: 'waiting', pid: -1, stolen: false, reason }))
-  goroutines.set(900, { gid: 900, state: 'running', pid: 0, stolen: false })
+  reasons.forEach((reason, i) => goroutines.set(i, { gid: i, state: 'waiting', pid: -1, mid: -1, stolen: false, reason }))
+  goroutines.set(900, { gid: 900, state: 'running', pid: 0, mid: -1, stolen: false })
   return world({ goroutines })
 }
 

@@ -5,7 +5,7 @@ import type { Timeline, TimelineEvent } from '../model/timeline'
 function tl(events: Partial<TimelineEvent>[], durationNs = 2000): Timeline {
   return {
     meta: { scenario: 'gcpressure', numProcs: 4, durationNs, goroutines: [] },
-    events: events.map((e) => ({ t: 0, type: 'metric', gid: -1, pid: -1, ...e }) as TimelineEvent),
+    events: events.map((e) => ({ t: 0, type: 'metric', gid: -1, pid: -1, mid: -1, ...e }) as TimelineEvent),
   }
 }
 
@@ -15,7 +15,7 @@ const MARK = 'GC concurrent mark phase'
 
 describe('gcSummary', () => {
   it('is empty when there is no GC activity', () => {
-    const s = gcSummary(tl([{ t: 100, type: 'g_run_start', gid: 1, pid: 0 }]))
+    const s = gcSummary(tl([{ t: 100, type: 'g_run_start', gid: 1, pid: 0, mid: -1 }]))
     expect(s.cycles).toBe(0)
     expect(s.stw).toEqual([])
     expect(s.mark).toEqual([])

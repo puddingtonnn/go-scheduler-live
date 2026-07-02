@@ -47,6 +47,7 @@ async function boot(): Promise<void> {
     scenarios,
     (p) => void run(p),
     () => scene?.toggleIds() ?? false,
+    () => scene?.toggleThreads() ?? false,
     (info) => chrome.setScenario(info),
   )
 
@@ -165,7 +166,7 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
       body.innerHTML =
         '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
         'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
-        '<b>M</b> — OS-поток: рантайм привязывает его к P, но трейс Go его не отдаёт, поэтому M здесь не рисуется. ' +
+        '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
         'Внизу — подпись, что происходит сейчас. ' +
         (info?.description ? `<br><span class="intro-teach">${info.description}</span>` : '')
       card.style.display = 'block'

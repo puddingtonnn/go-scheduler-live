@@ -11,8 +11,8 @@ describe('stateAt', () => {
   it('places a running goroutine on its P and leaves others idle', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'g_create', gid: 5, pid: 0 },
-        { t: 2, type: 'g_run_start', gid: 5, pid: 1 },
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: -1 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 1, mid: -1 },
       ]),
       2,
     )
@@ -25,8 +25,8 @@ describe('stateAt', () => {
   it('ignores events after t', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'g_create', gid: 5, pid: 0 },
-        { t: 10, type: 'g_run_start', gid: 5, pid: 1 },
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: -1 },
+        { t: 10, type: 'g_run_start', gid: 5, pid: 1, mid: -1 },
       ]),
       5,
     )
@@ -37,9 +37,9 @@ describe('stateAt', () => {
   it('frees the P and records the reason when a goroutine blocks', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'g_create', gid: 5, pid: 0 },
-        { t: 2, type: 'g_run_start', gid: 5, pid: 0 },
-        { t: 3, type: 'g_block', gid: 5, pid: 0, reason: 'chan receive' },
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: -1 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 0, mid: -1 },
+        { t: 3, type: 'g_block', gid: 5, pid: 0, mid: -1, reason: 'chan receive' },
       ]),
       3,
     )
@@ -52,8 +52,8 @@ describe('stateAt', () => {
   it('carries the stolen flag onto the running view', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'g_create', gid: 7, pid: 0 },
-        { t: 2, type: 'g_run_start', gid: 7, pid: 1, stolen: true },
+        { t: 1, type: 'g_create', gid: 7, pid: 0, mid: -1 },
+        { t: 2, type: 'g_run_start', gid: 7, pid: 1, mid: -1, stolen: true },
       ]),
       2,
     )
@@ -63,9 +63,9 @@ describe('stateAt', () => {
   it('marks a goroutine dead after exit and frees its P', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'g_create', gid: 5, pid: 0 },
-        { t: 2, type: 'g_run_start', gid: 5, pid: 0 },
-        { t: 3, type: 'g_exit', gid: 5, pid: 0 },
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: -1 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 0, mid: -1 },
+        { t: 3, type: 'g_exit', gid: 5, pid: 0, mid: -1 },
       ]),
       3,
     )
@@ -79,8 +79,8 @@ describe('stateAt', () => {
     // at t=0, before anything has run). A real GC STW still shows.
     const s = stateAt(
       tl([
-        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world (start trace)' },
-        { t: 2, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world (GC mark termination)' },
+        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, mid: -1, name: 'stop-the-world (start trace)' },
+        { t: 2, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, mid: -1, name: 'stop-the-world (GC mark termination)' },
       ]),
       2,
     )
@@ -91,15 +91,102 @@ describe('stateAt', () => {
   it('tracks active GC ranges and heap metrics', () => {
     const s = stateAt(
       tl([
-        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, name: 'stop-the-world' },
-        { t: 2, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, name: '/gc/heap/goal:bytes', value: 1000 },
-        { t: 3, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, name: '/memory/classes/heap/objects:bytes', value: 512 },
+        { t: 1, type: 'gc_range_begin', gid: NO_RESOURCE, pid: NO_RESOURCE, mid: -1, name: 'stop-the-world' },
+        { t: 2, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, mid: -1, name: '/gc/heap/goal:bytes', value: 1000 },
+        { t: 3, type: 'metric', gid: NO_RESOURCE, pid: NO_RESOURCE, mid: -1, name: '/memory/classes/heap/objects:bytes', value: 512 },
       ]),
       5,
     )
     expect(s.gcActive).toContain('stop-the-world')
     expect(s.heapGoal).toBe(1000)
     expect(s.heapLive).toBe(512)
+  })
+})
+
+describe('stateAt M (OS thread) binding', () => {
+  it('binds the M to both G and P on run start', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: 3 },
+        { t: 2, type: 'g_run_start', gid: 5, pid: 1, mid: 7 },
+      ]),
+      2,
+    )
+    expect(s.goroutines.get(5)?.mid).toBe(7)
+    expect(s.procs[1].mid).toBe(7)
+  })
+
+  it('never binds the creator M from g_create', () => {
+    const s = stateAt(tl([{ t: 1, type: 'g_create', gid: 5, pid: 0, mid: 3 }]), 2)
+    expect(s.goroutines.get(5)?.mid).toBe(NO_RESOURCE)
+  })
+
+  it('never binds the unblocker M from g_unblock', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_create', gid: 5, pid: 0, mid: 3 },
+        { t: 2, type: 'g_unblock', gid: 5, pid: 0, mid: 9 }, // M9 is the waker, not ours
+      ]),
+      2,
+    )
+    expect(s.goroutines.get(5)?.state).toBe('runnable')
+    expect(s.goroutines.get(5)?.mid).toBe(NO_RESOURCE)
+  })
+
+  it('keeps the M with a syscall-blocked G while the P is handed to a new M', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_run_start', gid: 5, pid: 0, mid: 7 },
+        { t: 2, type: 'g_syscall_enter', gid: 5, pid: 0, mid: 7 }, // M7 blocks with G5
+        { t: 3, type: 'p_stop', gid: NO_RESOURCE, pid: 0, mid: 4 }, // sysmon/stealer M4 retakes
+        { t: 4, type: 'p_start', gid: NO_RESOURCE, pid: 0, mid: 4 }, // M4 now drives P0
+      ]),
+      4,
+    )
+    const v = s.goroutines.get(5)!
+    expect(v.state).toBe('syscall')
+    expect(v.mid).toBe(7) // travels with the gopher
+    expect(v.pid).toBe(0) // came-from hint survives
+    expect(s.procs[0].mid).toBe(4) // station shows the new M
+  })
+
+  it('keeps the P M through syscall enter until p_stop (fast-path exit reuses it)', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_run_start', gid: 5, pid: 0, mid: 7 },
+        { t: 2, type: 'g_syscall_enter', gid: 5, pid: 0, mid: 7 },
+      ]),
+      2,
+    )
+    expect(s.procs[0].mid).toBe(7) // _Psyscall: M still holds the P
+    expect(s.procs[0].gid).toBe(NO_RESOURCE) // but no G runs on it
+  })
+
+  it('clears the G M when it stops, blocks or exits, keeping the P M', () => {
+    for (const type of ['g_run_stop', 'g_block', 'g_exit'] as const) {
+      const s = stateAt(
+        tl([
+          { t: 1, type: 'g_run_start', gid: 5, pid: 0, mid: 7 },
+          { t: 2, type, gid: 5, pid: 0, mid: 7 },
+        ]),
+        2,
+      )
+      expect(s.goroutines.get(5)?.mid).toBe(NO_RESOURCE)
+      expect(s.procs[0].mid).toBe(7) // M stays on the P looking for work
+    }
+  })
+
+  it('releases the G M when a syscall return finds no P (syscall->runnable)', () => {
+    const s = stateAt(
+      tl([
+        { t: 1, type: 'g_run_start', gid: 5, pid: 0, mid: 7 },
+        { t: 2, type: 'g_syscall_enter', gid: 5, pid: 0, mid: 7 },
+        { t: 3, type: 'g_unblock', gid: 5, pid: NO_RESOURCE, mid: 7 }, // returned, P gone
+      ]),
+      3,
+    )
+    expect(s.goroutines.get(5)?.state).toBe('runnable')
+    expect(s.goroutines.get(5)?.mid).toBe(NO_RESOURCE) // its M parked
   })
 })
 
