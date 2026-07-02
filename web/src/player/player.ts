@@ -3,7 +3,11 @@ import { stateAt, type WorldState } from './state'
 
 // At speed 1 the whole run plays over this many ms of real time, regardless of
 // its absolute (tiny) trace duration — otherwise a ~66ms trace would flash by.
-const BASE_WALL_MS = 45_000
+// 90s (was 45s): dense scenarios (pingpong/syscalls, ~2k events) averaged ~40
+// state changes per second — shorter than the sprites' travel easing, so
+// gophers never visibly arrived anywhere. At 90s a state lasts longer than the
+// journey; 2× restores the old pace for anyone who wants it.
+const BASE_WALL_MS = 90_000
 
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v
