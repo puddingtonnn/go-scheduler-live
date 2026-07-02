@@ -3,7 +3,7 @@ import type { ScenarioInfo, Timeline } from '../model/timeline'
 import type { Scene } from '../scene/scene'
 import { PAL } from '../scene/palette'
 import { stationPositions, type Pt } from '../scene/iso'
-import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals } from '../scene/layout'
+import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals, midAliases } from '../scene/layout'
 import { narrate, captionWindowNs } from '../player/narrate'
 import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
@@ -45,6 +45,7 @@ export class Chrome {
   private scene: Scene | null = null
   private numProcs = 4
   private timeline: Timeline | null = null
+  private midAlias = new Map<number, number>()
   private gc: GcSummary = { cycles: 0, stw: [], mark: [], maxStwNs: 0 }
   private lastT = -1
   private stwBannerMs = 0 // wall-clock ms remaining to hold the STW banner after a sub-frame pause
@@ -185,6 +186,7 @@ export class Chrome {
   // GC-strip bands, and resets step tracking.
   setTimeline(tl: Timeline): void {
     this.timeline = tl
+    this.midAlias = midAliases(tl.events) // caption M names match the carrier tags
     this.gc = gcSummary(tl)
     this.lastT = -1
     this.stwBannerMs = 0
@@ -281,7 +283,7 @@ export class Chrome {
     const cap =
       stwNs > 0
         ? `Stop-the-world: мир замер на ${fmtNs(stwNs)}`
-        : narrate(this.timeline?.events ?? [], t, world.gcActive, captionWindowNs(dur))
+        : narrate(this.timeline?.events ?? [], t, world.gcActive, captionWindowNs(dur), this.midAlias)
     if (cap !== this.last.cap) {
       this.last.cap = cap
       this.caption.textContent = cap

@@ -70,3 +70,42 @@ describe('captionWindowNs', () => {
     expect(captionWindowNs(0)).toBe(1)
   })
 })
+
+describe('narrate syscall handoff', () => {
+  const W = 8_000_000
+
+  it('narrates syscall enter with the M ordinal alias', () => {
+    const text = narrate(
+      [ev(10, 'g_syscall_enter', { gid: 5, pid: 0, mid: 6103904256 })],
+      10,
+      [],
+      W,
+      new Map([[6103904256, 1]]),
+    )
+    expect(text).toBe('G5 ушла в syscall — M1 блокируется с ней в ядре')
+  })
+
+  it('falls back to the raw mid without an alias map', () => {
+    const text = narrate([ev(10, 'g_syscall_enter', { gid: 5, pid: 0, mid: 42 })], 10, [], W)
+    expect(text).toContain('M42')
+  })
+
+  it('omits the M tail when the event carries no mid', () => {
+    const text = narrate([ev(10, 'g_syscall_enter', { gid: 5, pid: 0 })], 10, [], W)
+    expect(text).toBe('G5 ушла в syscall')
+  })
+
+  it('narrates syscall exit with the P it returned to', () => {
+    const text = narrate([ev(10, 'g_syscall_exit', { gid: 5, pid: 2, mid: 42 })], 10, [], W)
+    expect(text).toBe('G5 вернулась из syscall на P2')
+  })
+
+  it('outranks a steal burst but yields to stop-the-world', () => {
+    const events = [
+      ev(9, 'g_run_start', { gid: 1, pid: 0, stolen: true }),
+      ev(10, 'g_syscall_enter', { gid: 5, pid: 1, mid: 42 }),
+    ]
+    expect(narrate(events, 10, [], W)).toContain('syscall')
+    expect(narrate(events, 10, ['stop-the-world (GC mark termination)'], W)).toContain('Stop-the-world')
+  })
+})

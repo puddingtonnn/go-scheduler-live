@@ -154,6 +154,9 @@ id исполняющего M** (`exptrace.Event.Thread()`); это реальн
   спящие M невидимы), интро-фраза про M заменена, тултип syscall-пилюли про уход M; кнопка «M»
   (зеркало «id»-тоггла: `toggleThreads`, `aria-pressed`), «id»-тоггл прячет и бирки M. Контракт
   контролов: **19/19**.
+- **Caption озвучивает handoff:** `narrate` знает `g_syscall_enter/exit` (салиентность 4: STW 6 >
+  mark 5 > syscall 4 > кража 3 > блок 2 > exit 1), M в тексте — те же порядковые алиасы
+  (`midAliases` прокинута из chrome). `g_unblock` M не озвучивает (unblocker-trap).
 
 ## Conventions
 - `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
