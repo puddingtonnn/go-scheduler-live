@@ -110,9 +110,12 @@ export class Controls {
     }
     this.scenarioSel.addEventListener('change', () => {
       this.applyScenarioParams()
-      this.markDirty()
       const info = this.scenarios.find((s) => s.id === this.scenarioSel.value)
       if (info) this.onScenarioChange?.(info)
+      // Picking a scenario runs it immediately: otherwise the world keeps playing
+      // the OLD scenario while the header already names the new one — misleading.
+      // "Запустить" stays for re-runs and for applying the numeric params.
+      this.triggerRun()
     })
 
     this.procsInput = numberInput(1, 8, 4)

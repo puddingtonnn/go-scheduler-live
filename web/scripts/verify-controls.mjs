@@ -95,14 +95,14 @@ await logBtn.click()
 ok('log toggle hides/shows the journal', (await page.locator('.event-log').isVisible()) !== logVisibleBefore)
 await logBtn.click() // back on
 
-// 8. Scenario change + run → gcpressure (real GC)
+// 8. Scenario change auto-runs (no Запустить needed) → gcpressure (real GC)
 await page.evaluate(() => {
   const sel = document.querySelector('.controls select'); sel.value = 'gcpressure'; sel.dispatchEvent(new Event('change'))
 })
-await page.locator('.controls button', { hasText: 'Запустить' }).click()
-await page.waitForTimeout(2800)
-await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.scenario === 'gcpressure', { timeout: 15000 }).catch(() => {})
-ok('run loads selected scenario', (await state()).scenario === 'gcpressure')
+await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.scenario === 'gcpressure', { timeout: 20000 }).catch(() => {})
+ok('scenario change runs automatically', (await state()).scenario === 'gcpressure')
+ok('intro card reappears for the new scenario', await page.locator('.intro').isVisible())
+await page.locator('.intro button', { hasText: 'Понятно' }).click().catch(() => {})
 const gcReadout = await page.locator('.gc-readout').textContent()
 ok('GC readout shows real cycles', /цикл/.test(gcReadout), gcReadout)
 const stripTicks = await page.locator('.gc-band.stw').count()
@@ -116,6 +116,7 @@ await page.locator('.controls button', { hasText: 'Запустить' }).click(
 await page.waitForTimeout(2500)
 await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.numProcs === 2, { timeout: 15000 }).catch(() => {})
 ok('GOMAXPROCS change applies', (await state()).numProcs === 2)
+ok('intro stays hidden on same-scenario re-run', !(await page.locator('.intro').isVisible()))
 
 // 10. Capture a real STW moment: seek to a STW tick time
 const stwShot = await page.evaluate(() => {

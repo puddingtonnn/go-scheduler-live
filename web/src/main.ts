@@ -87,11 +87,16 @@ async function boot(): Promise<void> {
     history.replaceState(null, '', `${location.pathname}?${qs}`)
   }
 
+  // Scenario picks auto-run (see controls.ts), so runs can overlap while a fetch
+  // is in flight; the generation counter lets only the latest one win.
+  let runGen = 0
   async function run(params: RunParams): Promise<void> {
+    const gen = ++runGen
     controls.setLoading(true)
     errorBox.style.display = 'none'
     try {
       const tl = await fetchRun(params)
+      if (gen !== runGen) return // superseded by a newer run while fetching
       timeline = tl
       lastRun = params
       updateShareUrl()
@@ -126,10 +131,12 @@ async function boot(): Promise<void> {
       p.emit()
       p.play()
     } catch (e) {
+      if (gen !== runGen) return
       errorBox.textContent = `Ошибка запуска: ${msg(e)}. Проверьте, что бэкенд запущен.`
       errorBox.style.display = 'block'
     } finally {
-      controls.setLoading(false)
+      // A superseded run must not clear the loading state the newer run set.
+      if (gen === runGen) controls.setLoading(false)
     }
   }
 
@@ -182,8 +189,9 @@ function showFatal(root: HTMLElement, title: string, e: unknown): void {
   root.append(card)
 }
 
-// makeIntro builds a small dismissible "what am I looking at" card shown on each
-// new run, so a first-timer can parse the iso world (P = platform, G = gopher).
+// makeIntro builds a dismissible "what am I looking at" card. It appears on every
+// scenario CHANGE (re-running the same scenario doesn't nag): the first time with
+// the full G/P/M primer, afterwards as a short "what this scenario teaches" note.
 function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): void } {
   const card = document.createElement('div')
   card.className = 'intro'
@@ -197,20 +205,29 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
   card.append(title, body, close)
   card.style.display = 'none'
   stage.append(card)
-  let dismissed = false
+  const PRIMER =
+    '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
+    'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
+    '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
+    'Внизу — подпись, что происходит сейчас, и журнал событий. ' +
+    'Колесо мыши приближает мир (id читаются вблизи), перетаскивание двигает, двойной клик — весь мир. '
+  let primerShown = false
+  let lastId: string | null = null
   return {
     show(info) {
-      if (dismissed) return // only nag once per session
+      const id = info?.id ?? null
+      if (id === lastId) return // same scenario re-run — don't nag
+      lastId = id
+      const teach = info?.description ? `<span class="intro-teach">${info.description}</span>` : ''
+      if (!primerShown) {
+        primerShown = true
+        body.innerHTML = PRIMER + (teach ? `<br>${teach}` : '')
+      } else {
+        if (!teach) return // nothing scenario-specific to say
+        body.innerHTML = teach
+      }
       title.textContent = info?.title ?? 'Планировщик Go'
-      body.innerHTML =
-        '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
-        'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
-        '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
-        'Внизу — подпись, что происходит сейчас, и журнал событий. ' +
-        'Колесо мыши приближает мир (id читаются вблизи), перетаскивание двигает, двойной клик — весь мир. ' +
-        (info?.description ? `<br><span class="intro-teach">${info.description}</span>` : '')
       card.style.display = 'block'
-      close.addEventListener('click', () => (dismissed = true), { once: true })
     },
   }
 }
