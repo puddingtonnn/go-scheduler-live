@@ -7,6 +7,7 @@ import { GLOBAL, WAITING, SYSCALL, CAPS, zoneTotals, midAliases } from '../scene
 import { narrate, captionWindowNs } from '../player/narrate'
 import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
+import { t as tr, getLang, setLang, scenarioDesc } from '../i18n'
 
 // Chrome is the DOM layer over the pixel canvas: header (title + scenario subtitle
 // + GC indicator + heap bar + GC-cycle readout), a to-scale GC strip that shows
@@ -17,25 +18,26 @@ import { gcPhase, heapPct, waitingBreakdown } from './derive'
 
 type ZoneKey = 'pstation' | 'local' | 'global' | 'waiting' | 'syscall'
 
-// Each legend entry carries a hover tip so the jargon (runnable/syscall/mark/STW)
-// is teachable in place, for a viewer who has never seen the scheduler.
-const LEGEND: ReadonlyArray<readonly [string, string, string]> = [
-  ['Выполняется', PAL.running, 'Горутина бежит на P — прямо сейчас занимает слот выполнения'],
-  ['В очереди', PAL.runnable, 'Готова бежать, ждёт свободный P (runnable)'],
-  ['Ожидание', PAL.waiting, 'Заблокирована: канал, sync, сон, GC-ассист — P не занимает'],
-  ['Syscall', PAL.syscall, 'Вызов ОС; на время syscall P отвязывается и может уйти другому потоку (M)'],
-  ['M — OS-поток', PAL.thread, 'OS-поток: тележка с номером у P-станции и под горутиной в syscall. Id настоящие, из трейса; блокирующий syscall уводит M вместе с горутиной, P достаётся другому M'],
-  ['GC mark', PAL.teal, 'Конкурентная разметка: GC работает ОДНОВРЕМЕННО с горутинами (это не пауза)'],
-  ['STW', PAL.gcStw, 'Stop-the-world: рантайм замирает на десятки мкс, чтобы завершить фазу GC'],
-  ['Завершён', PAL.dead, 'Горутина отработала и исчезает'],
+// Legend colors, zipped with the localized [name, tip] pairs from the i18n dict
+// (same order); each entry carries a hover tip so the jargon is teachable in place.
+const LEGEND_COLORS: readonly string[] = [
+  PAL.running,
+  PAL.runnable,
+  PAL.waiting,
+  PAL.syscall,
+  PAL.thread,
+  PAL.teal,
+  PAL.gcStw,
+  PAL.dead,
 ]
 
 // fmtNs renders a real nanosecond duration in the most legible unit.
 function fmtNs(ns: number): string {
+  const u = tr().units
   if (ns <= 0) return '0'
-  if (ns < 1_000) return `${Math.round(ns)} нс`
-  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(ns < 10_000 ? 1 : 0)} мкс`
-  return `${(ns / 1_000_000).toFixed(2)} мс`
+  if (ns < 1_000) return `${Math.round(ns)} ${u.ns}`
+  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(ns < 10_000 ? 1 : 0)} ${u.us}`
+  return `${(ns / 1_000_000).toFixed(2)} ${u.ms}`
 }
 
 export class Chrome {
@@ -70,17 +72,27 @@ export class Chrome {
 
   constructor(stage: HTMLElement) {
     // --- header top row: title + scenario subtitle + GC indicator + heap bar ---
+    const S = tr()
     const title = el('div', 'title')
-    title.append('Планировщик Go ', el('span', 'accent', '· G·M·P'))
-    this.subtitle = el('span', 'subtitle', 'выберите сценарий ниже')
+    title.append(S.chrome.titleMain, el('span', 'accent', S.chrome.titleAccent))
+    this.subtitle = el('span', 'subtitle', S.chrome.subtitleDefault)
     const titleWrap = el('div', 'title-wrap')
     titleWrap.append(title, this.subtitle)
 
+    // language switcher: strings are baked at construction time all over the
+    // chrome/controls, so switching simply persists the choice and reloads.
+    const langBtn = el('button', 'lang-btn', S.chrome.langBtn)
+    langBtn.title = S.chrome.langTip
+    langBtn.addEventListener('click', () => {
+      setLang(getLang() === 'ru' ? 'en' : 'ru')
+      location.reload()
+    })
+
     this.gcDot = el('span', 'gc-dot')
-    this.gcLabel = el('span', 'gc-label', 'GC: простой')
+    this.gcLabel = el('span', 'gc-label', S.gcPhase.idle)
     this.gcReadout = el('span', 'gc-readout', '')
     const gc = el('div', 'gc')
-    gc.title = 'Фаза сборщика мусора: простой · конкурентная разметка (идёт вместе с горутинами) · stop-the-world (короткая пауза всего рантайма)'
+    gc.title = S.chrome.gcTip
     gc.append(this.gcDot, this.gcLabel, this.gcReadout)
 
     this.heapFill = el('div', 'heap-fill')
@@ -88,11 +100,11 @@ export class Chrome {
     heapBar.append(this.heapFill, el('div', 'heap-goal'))
     this.heapPctEl = el('span', 'heap-pct', '—')
     const heap = el('div', 'heap')
-    heap.title = 'Куча: живой размер как доля от цели GC (100% = цель). Цвет = фаза GC: серый — простой, бирюза — разметка, красный — STW'
-    heap.append(el('span', 'heap-cap', 'куча'), heapBar, this.heapPctEl)
+    heap.title = S.chrome.heapTip
+    heap.append(el('span', 'heap-cap', S.chrome.heapCap), heapBar, this.heapPctEl)
 
     const topRow = el('div', 'chrome-head')
-    topRow.append(titleWrap, el('div', 'spacer'), gc, heap)
+    topRow.append(titleWrap, el('div', 'spacer'), gc, heap, langBtn)
 
     // --- GC strip: a to-scale lane of the real GC ranges (mark bands + STW ticks)
     // with a playhead. This is the honest channel: STW reads as the sliver it is. ---
@@ -100,7 +112,7 @@ export class Chrome {
     this.stripHead = el('div', 'gc-strip-head')
     this.stripTrack.append(this.stripHead)
     const strip = el('div', 'gc-strip')
-    strip.title = 'Хронология всего прогона: бирюзовые полосы — конкурентная разметка, красные тики — STW-паузы, белая линия — текущая позиция'
+    strip.title = S.chrome.stripTip
     strip.append(el('span', 'gc-strip-cap', 'GC'), this.stripTrack)
 
     this.header = el('header', 'chrome-header')
@@ -108,7 +120,8 @@ export class Chrome {
 
     // --- legend ---
     this.legend = el('div', 'chrome-legend')
-    for (const [name, color, tip] of LEGEND) {
+    for (const [i, [name, tip]] of S.legend.entries()) {
+      const color = LEGEND_COLORS[i]
       const dot = el('span', 'dot')
       dot.style.background = color
       dot.style.boxShadow = `0 0 5px ${color}88`
@@ -132,15 +145,15 @@ export class Chrome {
       stage.append(e)
       return e
     }
-    const waiting = pill('waiting', 'Ожидание', PAL.waiting, true, 'Заблокированные горутины: канал, sync, сон, GC-ассист — P не занимают')
+    const waiting = pill('waiting', S.pills.waiting[0], PAL.waiting, true, S.pills.waiting[1])
     this.waitSub = el('span', 'zone-sub')
     waiting.append(this.waitSub)
     this.pills = {
-      pstation: pill('pstation', 'P-станции · выполнение', PAL.running, true, 'Слоты выполнения (=GOMAXPROCS); на каждом не больше одной бегущей горутины'),
-      local: pill('local', 'локальные очереди', PAL.runnable, true, 'Горутины, приписанные к своему P — реконструкция (рантайм очереди не пишет)'),
-      global: pill('global', 'Глобальная очередь', PAL.runnable, true, 'Горутины без своего P или перелившиеся из полной локальной очереди'),
+      pstation: pill('pstation', S.pills.pstation[0], PAL.running, true, S.pills.pstation[1]),
+      local: pill('local', S.pills.local[0], PAL.runnable, true, S.pills.local[1]),
+      global: pill('global', S.pills.global[0], PAL.runnable, true, S.pills.global[1]),
       waiting,
-      syscall: pill('syscall', 'Syscall', PAL.syscall, true, 'Горутины в системном вызове ОС; M уходит вместе с горутиной, а P достаётся другому M'),
+      syscall: pill('syscall', S.pills.syscall[0], PAL.syscall, true, S.pills.syscall[1]),
     }
     this.over = over as Record<ZoneKey, HTMLSpanElement>
 
@@ -167,7 +180,7 @@ export class Chrome {
 
   // setScenario shows the "what this teaches" subtitle for the active scenario.
   setScenario(info: ScenarioInfo | undefined): void {
-    this.subtitle.textContent = info?.description ?? ''
+    this.subtitle.textContent = info ? scenarioDesc(info) : ''
   }
 
   // setTimeline wires the per-run trace: builds the GC summary, renders the static
@@ -236,7 +249,7 @@ export class Chrome {
 
     // GC-cycle readout from the real ranges (honest even when the scene shows idle).
     const readout =
-      this.gc.cycles > 0 ? `${this.gc.cycles} цикл. · STW до ${fmtNs(this.gc.maxStwNs)}` : 'циклов нет'
+      this.gc.cycles > 0 ? tr().chrome.readout(this.gc.cycles, fmtNs(this.gc.maxStwNs)) : tr().chrome.readoutNone
     if (readout !== this.last.readout) {
       this.last.readout = readout
       this.gcReadout.textContent = readout
@@ -270,7 +283,7 @@ export class Chrome {
     // otherwise leave the caption stale for seconds of wall time).
     const cap =
       stwNs > 0
-        ? `Stop-the-world: мир замер на ${fmtNs(stwNs)}`
+        ? tr().chrome.banner(fmtNs(stwNs))
         : narrate(this.timeline?.events ?? [], t, world.gcActive, captionWindowNs(dur), this.midAlias)
     if (cap !== this.last.cap) {
       this.last.cap = cap
@@ -284,7 +297,7 @@ export class Chrome {
 
     // waiting-reasons breakdown.
     const wait = waitingBreakdown(world)
-      .map((g) => `${g.category} ${g.count}`)
+      .map((g) => `${tr().reasonCat[g.category]} ${g.count}`)
       .join(' · ')
     if (wait !== this.last.wait) {
       this.last.wait = wait
@@ -339,46 +352,22 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 // membership, steals and M lifecycle are simply not in the data; this panel is
 // where the site says so out loud instead of hiding it in tooltips.
 function buildAssumptions(): HTMLDetailsElement {
+  const A = tr().assumptions
   const box = document.createElement('details')
   box.className = 'assumptions'
   const sum = document.createElement('summary')
-  sum.textContent = 'Допущения: что в этом мире условно, а что — настоящие данные трейса'
+  sum.textContent = A.summary
   box.append(sum)
   const body = el('div', 'assume-body')
-  const group = (title: string, items: string[]): void => {
+  for (const [gtitle, items] of A.groups) {
     const g = el('div', 'assume-group')
-    g.append(el('b', undefined, title))
+    g.append(el('b', undefined, gtitle))
     const ul = document.createElement('ul')
     for (const it of items) ul.append(el('li', undefined, it))
     g.append(ul)
     body.append(g)
   }
-  group('Реконструкция — рантайм этого не записывает', [
-    'Состав очередей: горутины приписаны к «своему» P условно (стабильная раскладка). Реальную локальную очередь (256 слотов + приоритетный runnext — он не показан) трейс не отдаёт.',
-    'Кража работы — эвристика «стала runnable на одном P, побежала на другом». Бывают ложные срабатывания (подбор из глобальной очереди, возврат из syscall) — потому везде пометка «(реконстр.)».',
-    'При пробуждении трейс называет P будильщика — в чью очередь встала горутина, неизвестно.',
-  ])
-  group('Масштаб и время', [
-    'Скорость 1× — весь прогон за ~90 с; реальный трейс длится десятки миллисекунд. Всё замедлено в тысячи раз, перемещения гоферов — анимация.',
-    'STW-вспышка растянута до ~⅓ секунды, чтобы её было видно; реальная пауза — микросекунды-миллисекунды (честная цифра — в подписи).',
-    'В лейне P видны 6 горутин, остальные — бейдж «+N» или глобальная очередь.',
-  ])
-  group('Опущено', [
-    'GC: фазы sweep и mark-assist; то, что фоновые mark-воркеры забирают ~25% CPU; цель кучи мягкая — реальная куча может её превышать.',
-    'Причина вытеснения с P (трейс её не пишет), netpoller и sysmon как отдельные сущности, внутренности аллокатора (gFree, mcache).',
-    'Запаркованные M: их жизненного цикла в трейсе нет — тележка просто исчезает. На бирке — порядковый номер, реальный id ОС — в тултипе.',
-  ])
-  group('Данные и сценарии', [
-    'Кривая кучи даунсэмплена: точки не чаще раза в 2 мс.',
-    'Сценарии нарочно замедлены CPU-работой, чтобы поток событий был обозримым, — продовый код так не пишут.',
-  ])
-  body.append(
-    el(
-      'div',
-      'assume-real',
-      'Настоящее — всё остальное, напрямую из runtime/trace: события и их время, состояния горутин, привязки P и M, циклы GC и длительности STW, метрики кучи, причины блокировок.',
-    ),
-  )
+  body.append(el('div', 'assume-real', A.real))
   box.append(body)
   return box
 }

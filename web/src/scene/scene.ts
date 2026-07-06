@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, Texture, type FederatedPointerEvent } from 'pixi.js'
 import type { GState, GoroutineView, WorldState } from '../player/state'
+import { t as tr } from '../i18n'
 import type { Timeline, TimelineEvent } from '../model/timeline'
 import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { stealBurst, STEAL_LOOKBACK_NS } from '../player/steal'
@@ -37,13 +38,7 @@ const PAN_THRESHOLD_PX = 4
 // STW_FLASH_MS is shared with the chrome banner (see player/gc.ts) so both fade together.
 const GLOW_MS = 600
 
-const STATE_RU: Record<GState, string> = {
-  running: 'бежит',
-  runnable: 'готова',
-  waiting: 'ждёт',
-  syscall: 'syscall',
-  dead: 'завершилась',
-}
+// State names for tooltips come from the i18n dictionary (scene.states).
 
 type AnimKind = GState
 
@@ -574,12 +569,12 @@ export class Scene {
 }
 
 function formatTip(gid: number, view: GoroutineView, midAlias?: number): string {
-  let s = `G${gid} • ${STATE_RU[view.state]}`
+  let s = `G${gid} • ${tr().scene.states[view.state]}`
   if (view.state === 'waiting' && view.reason) s += `: ${view.reason}`
   else if ((view.state === 'running' || view.state === 'syscall') && view.pid >= 0) s += ` (P${view.pid})`
   if ((view.state === 'running' || view.state === 'syscall') && view.mid >= 0)
     s += ` · M${midAlias ?? view.mid}`
-  if (view.stolen && view.state === 'running') s += ' · украдена (реконстр.)'
+  if (view.stolen && view.state === 'running') s += tr().scene.stolenTip
   return s
 }
 
@@ -587,14 +582,14 @@ function formatTip(gid: number, view: GoroutineView, midAlias?: number): string 
 // syscall with its G, or bound to a P (carrying that P's runner, if any). The
 // label is the per-run ordinal alias; the real (huge) thread id stays here.
 function threadTip(mid: number, alias: number | undefined, world: WorldState): string {
-  const name = `M${alias ?? mid} • OS-поток (id ${mid})`
+  const name = tr().scene.mName(alias ?? mid, mid)
   for (const v of world.goroutines.values()) {
-    if (v.state === 'syscall' && v.mid === mid) return `${name} · в syscall с G${v.gid}`
+    if (v.state === 'syscall' && v.mid === mid) return `${name}${tr().scene.inSyscallWith(v.gid)}`
   }
   for (const p of world.procs) {
     if (p.mid !== mid) continue
-    let s = `${name} · привязан к P${p.pid}`
-    if (p.gid >= 0) s += ` · несёт G${p.gid}`
+    let s = `${name}${tr().scene.boundTo(p.pid)}`
+    if (p.gid >= 0) s += tr().scene.carries(p.gid)
     return s
   }
   return name

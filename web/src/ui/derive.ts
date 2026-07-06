@@ -1,6 +1,7 @@
 import type { WorldState } from '../player/state'
 import { reasonCategory, REASON_CATEGORIES, type ReasonCategory } from '../player/reason'
 import { PAL } from '../scene/palette'
+import { t } from '../i18n'
 
 // Pure derivations from a WorldState for the DOM chrome (GC indicator, heap bar,
 // waiting-reasons breakdown). Kept separate from the DOM Chrome so they stay
@@ -18,9 +19,9 @@ export interface GcPhase {
 // stop-the-world wins over a concurrent mark; absence of both reads as idle.
 export function gcPhase(world: WorldState): GcPhase {
   const active = world.gcActive
-  if (active.some((n) => n.includes('stop-the-world'))) return { kind: 'stw', label: 'GC: stop-the-world', color: PAL.gcStw }
-  if (active.some((n) => n.includes('mark'))) return { kind: 'mark', label: 'GC: парал. маркировка', color: PAL.teal }
-  return { kind: 'idle', label: 'GC: простой', color: PAL.gcIdle }
+  if (active.some((n) => n.includes('stop-the-world'))) return { kind: 'stw', label: t().gcPhase.stw, color: PAL.gcStw }
+  if (active.some((n) => n.includes('mark'))) return { kind: 'mark', label: t().gcPhase.mark, color: PAL.teal }
+  return { kind: 'idle', label: t().gcPhase.idle, color: PAL.gcIdle }
 }
 
 // heapPct is the live-heap fraction of the GC goal, clamped to [0,1], or null

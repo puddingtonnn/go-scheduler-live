@@ -1,6 +1,7 @@
 import type { ScenarioInfo } from './model/timeline'
 import type { RunParams } from './api'
 import type { Player } from './player/player'
+import { t, scenarioTitle } from './i18n'
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4]
 
@@ -29,25 +30,26 @@ export class Controls {
     private readonly onToggleLog?: () => boolean,
     private readonly onScenarioChange?: (info: ScenarioInfo) => void,
   ) {
+    const S = t()
     const bar = document.createElement('div')
     bar.className = 'controls'
     bar.setAttribute('role', 'group')
-    bar.setAttribute('aria-label', 'управление проигрыванием')
+    bar.setAttribute('aria-label', S.controls.ariaBar)
 
     // toggle then sync the label, because pausing stops the tick loop that would
     // otherwise refresh it (the button would stay reading "Пауза" after a pause).
-    this.playBtn = button('Играть', () => {
+    this.playBtn = button(S.controls.play, () => {
       this.player?.toggle()
       this.syncPlayBtn()
     })
-    const stepBtn = button('Шаг', () => this.player?.step())
+    const stepBtn = button(S.controls.step, () => this.player?.step())
 
     const idBtn = button('id', () => {
       const on = this.onToggleIds?.() ?? false
       idBtn.classList.toggle('active', on)
       idBtn.setAttribute('aria-pressed', String(on))
     })
-    idBtn.title = 'показать номера горутин'
+    idBtn.title = S.controls.idTip
     // ids are shown by default in the scene, so the toggle starts active.
     idBtn.classList.add('active')
     idBtn.setAttribute('aria-pressed', 'true')
@@ -57,17 +59,17 @@ export class Controls {
       mBtn.classList.toggle('active', on)
       mBtn.setAttribute('aria-pressed', String(on))
     })
-    mBtn.title = 'показать OS-потоки (M)'
+    mBtn.title = S.controls.mTip
     // M carriers are shown by default in the scene, so the toggle starts active.
     mBtn.classList.add('active')
     mBtn.setAttribute('aria-pressed', 'true')
 
-    const logBtn = button('лог', () => {
+    const logBtn = button(S.controls.logLabel, () => {
       const on = this.onToggleLog?.() ?? false
       logBtn.classList.toggle('active', on)
       logBtn.setAttribute('aria-pressed', String(on))
     })
-    logBtn.title = 'показать журнал событий'
+    logBtn.title = S.controls.logTip
     // the event log is visible by default, so the toggle starts active.
     logBtn.classList.add('active')
     logBtn.setAttribute('aria-pressed', 'true')
@@ -89,7 +91,7 @@ export class Controls {
     this.scrub.min = '0'
     this.scrub.max = '1000'
     this.scrub.value = '0'
-    this.scrub.setAttribute('aria-label', 'позиция во времени')
+    this.scrub.setAttribute('aria-label', S.controls.ariaScrub)
     this.scrub.addEventListener('input', () => {
       if (!this.player) return
       this.player.pause()
@@ -99,13 +101,13 @@ export class Controls {
 
     this.time = document.createElement('span')
     this.time.className = 'time'
-    this.time.textContent = '0.00 / 0.00 мс'
+    this.time.textContent = `0.00 / 0.00 ${S.controls.ms}`
 
     this.scenarioSel = document.createElement('select')
     for (const sc of this.scenarios) {
       const opt = document.createElement('option')
       opt.value = sc.id
-      opt.textContent = sc.title
+      opt.textContent = scenarioTitle(sc)
       this.scenarioSel.append(opt)
     }
     this.scenarioSel.addEventListener('change', () => {
@@ -119,14 +121,14 @@ export class Controls {
     })
 
     this.procsInput = numberInput(1, 8, 4)
-    this.procsInput.title = 'GOMAXPROCS — число P (слотов выполнения). Ограничено 1–8 под размер изо-сцены'
+    this.procsInput.title = S.controls.procsTip
     this.goroutinesInput = numberInput(1, 200, 50)
-    this.goroutinesInput.title = 'Сколько горутин запустить в сценарии (диапазон зависит от сценария)'
+    this.goroutinesInput.title = S.controls.gorTip
     this.procsInput.addEventListener('input', () => this.markDirty())
     this.goroutinesInput.addEventListener('input', () => this.markDirty())
-    this.runBtn = button('Запустить', () => this.triggerRun())
+    this.runBtn = button(S.controls.run, () => this.triggerRun())
     this.runBtn.className = 'run'
-    this.runBtn.setAttribute('aria-label', 'запустить выбранный сценарий')
+    this.runBtn.setAttribute('aria-label', S.controls.ariaRun)
 
     bar.append(
       this.playBtn,
@@ -138,9 +140,9 @@ export class Controls {
       mBtn,
       logBtn,
       sep(),
-      labeled('сценарий', this.scenarioSel),
+      labeled(S.controls.scenario, this.scenarioSel),
       labeled('GOMAXPROCS', this.procsInput),
-      labeled('горутины', this.goroutinesInput),
+      labeled(S.controls.goroutines, this.goroutinesInput),
       this.runBtn,
     )
     container.append(bar)
@@ -185,13 +187,13 @@ export class Controls {
     if (!p) return
     const frac = p.duration > 0 ? p.t / p.duration : 0
     this.scrub.value = String(Math.round(frac * 1000))
-    this.time.textContent = `${(p.t / 1e6).toFixed(2)} / ${(p.duration / 1e6).toFixed(2)} мс`
+    this.time.textContent = `${(p.t / 1e6).toFixed(2)} / ${(p.duration / 1e6).toFixed(2)} ${t().controls.ms}`
     this.syncPlayBtn()
   }
 
   setLoading(loading: boolean): void {
     this.runBtn.disabled = loading
-    this.runBtn.textContent = loading ? 'Запуск…' : 'Запустить'
+    this.runBtn.textContent = loading ? t().controls.running : t().controls.run
   }
 
   // markDirty highlights the run button when the config changed since the last run,
@@ -205,7 +207,7 @@ export class Controls {
   }
 
   private syncPlayBtn(): void {
-    this.playBtn.textContent = this.player?.playing ? 'Пауза' : 'Играть'
+    this.playBtn.textContent = this.player?.playing ? t().controls.pause : t().controls.play
   }
 
   private setSpeedActive(s: number): void {

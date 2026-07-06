@@ -9,6 +9,7 @@
 
 import type { TimelineEvent } from '../model/timeline'
 import { PAL } from '../scene/palette'
+import { t } from '../i18n'
 
 export type LogCat = 'sched' | 'wait' | 'syscall' | 'gc' | 'proc'
 
@@ -17,12 +18,12 @@ export interface LogRow {
   text: string
 }
 
-export const LOG_CATS: ReadonlyArray<readonly [LogCat, string, string]> = [
-  ['sched', 'план', PAL.running],
-  ['wait', 'ожид', PAL.waiting],
-  ['syscall', 'syscall', PAL.syscall],
-  ['gc', 'GC', PAL.teal],
-  ['proc', 'P', PAL.platEdge],
+export const LOG_CATS: ReadonlyArray<readonly [LogCat, string]> = [
+  ['sched', PAL.running],
+  ['wait', PAL.waiting],
+  ['syscall', PAL.syscall],
+  ['gc', PAL.teal],
+  ['proc', PAL.platEdge],
 ]
 
 export interface TimedLogRow extends LogRow {
@@ -31,9 +32,10 @@ export interface TimedLogRow extends LogRow {
 
 // fmtDur renders a real duration in the most legible unit.
 export function fmtDur(ns: number): string {
-  if (ns < 1_000) return `${Math.round(ns)} нс`
-  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(ns < 10_000 ? 1 : 0)} мкс`
-  return `${(ns / 1_000_000).toFixed(2)} мс`
+  const u = t().units
+  if (ns < 1_000) return `${Math.round(ns)} ${u.ns}`
+  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(ns < 10_000 ? 1 : 0)} ${u.us}`
+  return `${(ns / 1_000_000).toFixed(2)} ${u.ms}`
 }
 
 export function fmtMs(tNs: number): string {
@@ -63,6 +65,7 @@ interface GCtx {
 //  - a p_stop while its M is blocked in a syscall is the sysmon retake.
 // Metrics are skipped (thousands of heap samples would drown the journal).
 export function buildLogRows(events: TimelineEvent[], midAlias?: Map<number, number>): TimedLogRow[] {
+  const L = t().log
   const m = (mid: number): string => `M${midAlias?.get(mid) ?? mid}`
   const gs = new Map<number, GCtx>()
   const mBusy = new Map<number, number>() // executing mid -> gid
@@ -100,42 +103,31 @@ export function buildLogRows(events: TimelineEvent[], midAlias?: Map<number, num
     switch (e.type) {
       case 'g_create': {
         const by = actor(e)
-        push(e.t, 'sched', `G${e.gid} создана${by !== undefined ? ` горутиной G${by}` : ''}`)
+        push(e.t, 'sched', L.created(e.gid, by))
         gs.set(e.gid, { state: 'runnable', since: e.t, created: e.t, via: 'create' })
         break
       }
       case 'g_run_start': {
         let why = ''
         if (ctx?.state === 'runnable') {
-          const waited = ` — ждала ${dur()}`
-          if (ctx.via === 'create') why = `${waited} (первый запуск)`
-          else if (ctx.via === 'sysreturn') why = `${waited} (после syscall)`
-          else if (ctx.via === 'unblock')
-            why = `${waited}${ctx.wakerGid !== undefined ? ` (разбужена G${ctx.wakerGid})` : ''}`
-          else why = waited
+          if (ctx.via === 'create') why = L.whyFirst(dur())
+          else if (ctx.via === 'sysreturn') why = L.whyAfterSyscall(dur())
+          else why = L.whyWoken(dur(), ctx.via === 'unblock' ? ctx.wakerGid : undefined)
         }
-        push(
-          e.t,
-          'sched',
-          `G${e.gid} встала на P${e.pid}${e.mid >= 0 ? ` · ${m(e.mid)}` : ''}` +
-            (e.stolen ? ' · украдена (реконстр.)' : '') +
-            why,
-        )
+        push(e.t, 'sched', L.gotP(e.gid, e.pid, e.mid >= 0 ? m(e.mid) : null, e.stolen === true, why))
         gs.set(e.gid, { ...ctx, state: 'running', since: e.t })
         bind(e.gid, e.mid)
         if (e.mid >= 0 && e.pid >= 0) pOwner.set(e.pid, e.mid)
         break
       }
       case 'g_run_stop': {
-        const ran = ctx?.state === 'running' ? ` (бежала ${dur()})` : ''
-        push(e.t, 'sched', `G${e.gid} слезла с P${e.pid} — в очередь${ran}`)
+        push(e.t, 'sched', L.offP(e.gid, e.pid, ctx?.state === 'running' ? dur() : null))
         gs.set(e.gid, { ...ctx, state: 'runnable', since: e.t, via: 'stop', wakerGid: undefined })
         unbind(e.gid)
         break
       }
       case 'g_block': {
-        const ran = ctx?.state === 'running' ? ` (бежала ${dur()})` : ''
-        push(e.t, 'wait', `G${e.gid} заблокирована${e.reason ? `: ${e.reason}` : ''}${ran}`)
+        push(e.t, 'wait', L.blocked(e.gid, e.reason, ctx?.state === 'running' ? dur() : null))
         gs.set(e.gid, { ...ctx, state: 'waiting', since: e.t, reason: e.reason })
         unbind(e.gid)
         break
@@ -143,7 +135,7 @@ export function buildLogRows(events: TimelineEvent[], midAlias?: Map<number, num
       case 'g_unblock': {
         if (ctx?.state === 'syscall') {
           // Returned from the kernel but the P is gone: runnable, not running.
-          push(e.t, 'syscall', `G${e.gid} вернулась из syscall — свободного P нет, в очередь (в ядре ${dur()})`)
+          push(e.t, 'syscall', L.sysReturnNoP(e.gid, dur()))
           const mid = gToM.get(e.gid)
           if (mid !== undefined) sysWithM.delete(mid)
           gs.set(e.gid, { ...ctx, state: 'runnable', since: e.t, via: 'sysreturn', wakerGid: undefined })
@@ -151,26 +143,20 @@ export function buildLogRows(events: TimelineEvent[], midAlias?: Map<number, num
           break
         }
         const by = actor(e)
-        const waitedFor =
-          ctx?.state === 'waiting' ? ` — ждала${ctx.reason ? ` «${ctx.reason}»` : ''} ${dur()}` : ''
-        push(
-          e.t,
-          'wait',
-          `G${e.gid} разбужена${by !== undefined ? ` горутиной G${by}` : ''}${waitedFor}`,
-        )
+        const inWait = ctx?.state === 'waiting'
+        push(e.t, 'wait', L.woken(e.gid, by, inWait ? ctx?.reason : undefined, inWait ? dur() : null))
         gs.set(e.gid, { ...ctx, state: 'runnable', since: e.t, via: 'unblock', wakerGid: by })
         break
       }
       case 'g_syscall_enter': {
-        push(e.t, 'syscall', `G${e.gid} ушла в syscall${e.mid >= 0 ? ` — ${m(e.mid)} блокируется с ней` : ''}`)
+        push(e.t, 'syscall', L.sysEnter(e.gid, e.mid >= 0 ? m(e.mid) : null))
         gs.set(e.gid, { ...ctx, state: 'syscall', since: e.t })
         bind(e.gid, e.mid)
         if (e.mid >= 0) sysWithM.set(e.mid, e.gid)
         break
       }
       case 'g_syscall_exit': {
-        const inKernel = ctx?.state === 'syscall' ? ` (в ядре ${dur()})` : ''
-        push(e.t, 'syscall', `G${e.gid} вернулась из syscall на P${e.pid}${inKernel}`)
+        push(e.t, 'syscall', L.sysExit(e.gid, e.pid, ctx?.state === 'syscall' ? dur() : null))
         if (e.mid >= 0) sysWithM.delete(e.mid)
         gs.set(e.gid, { ...ctx, state: 'running', since: e.t })
         bind(e.gid, e.mid)
@@ -178,34 +164,27 @@ export function buildLogRows(events: TimelineEvent[], midAlias?: Map<number, num
         break
       }
       case 'g_exit': {
-        const lived = ctx?.created !== undefined ? ` (жила ${fmtDur(e.t - ctx.created)})` : ''
-        push(e.t, 'sched', `G${e.gid} завершилась${lived}`)
+        push(e.t, 'sched', L.exited(e.gid, ctx?.created !== undefined ? fmtDur(e.t - ctx.created) : null))
         gs.set(e.gid, { ...ctx, state: 'dead', since: e.t })
         unbind(e.gid)
         break
       }
       case 'p_start':
-        push(e.t, 'proc', `P${e.pid} запущен${e.mid >= 0 ? ` · ${m(e.mid)}` : ''}`)
+        push(e.t, 'proc', L.pStart(e.pid, e.mid >= 0 ? m(e.mid) : null))
         if (e.mid >= 0) pOwner.set(e.pid, e.mid)
         break
       case 'p_stop': {
         const owner = pOwner.get(e.pid)
         const stuckG = owner !== undefined ? sysWithM.get(owner) : undefined
-        push(
-          e.t,
-          'proc',
-          stuckG !== undefined
-            ? `P${e.pid} остановлен — его ${m(owner!)} заблокирован в syscall с G${stuckG}, P уходит другому M`
-            : `P${e.pid} остановлен`,
-        )
+        push(e.t, 'proc', stuckG !== undefined ? L.pStopRetake(e.pid, m(owner!), stuckG) : L.pStop(e.pid))
         pOwner.delete(e.pid)
         break
       }
       case 'gc_range_begin':
-        push(e.t, 'gc', `GC: ${e.name ?? '?'} — начало`)
+        push(e.t, 'gc', L.gcBegin(e.name ?? '?'))
         break
       case 'gc_range_end':
-        push(e.t, 'gc', `GC: ${e.name ?? '?'} — конец`)
+        push(e.t, 'gc', L.gcEnd(e.name ?? '?'))
         break
       case 'metric':
         break
@@ -233,10 +212,11 @@ export class EventLog {
     head.className = 'event-log-head'
     const title = document.createElement('span')
     title.className = 'event-log-title'
-    title.textContent = 'журнал событий'
-    title.title = 'Все события трейса (кроме heap-метрик). Строка сверху показывает только самое заметное; здесь — всё.'
+    title.textContent = t().log.header
+    title.title = t().log.headerTip
     head.append(title)
-    for (const [cat, label, color] of LOG_CATS) {
+    for (const [cat, color] of LOG_CATS) {
+      const label = t().log.cats[cat]
       const chip = document.createElement('button')
       chip.type = 'button'
       chip.className = 'event-log-chip active'

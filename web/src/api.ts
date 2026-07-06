@@ -1,4 +1,5 @@
 import type { ScenarioInfo, Timeline } from './model/timeline'
+import { t } from './i18n'
 
 export interface RunParams {
   scenario: string
@@ -30,7 +31,7 @@ let bakedIndex: Promise<BakedIndex> | null = null
 
 function loadIndex(): Promise<BakedIndex> {
   bakedIndex ??= fetch(`${RUNS_BASE}index.json`).then((r) => {
-    if (!r.ok) throw new Error(`демо-индекс: HTTP ${r.status}`)
+    if (!r.ok) throw new Error(t().api.demoIndex(r.status))
     return r.json() as Promise<BakedIndex>
   })
   return bakedIndex
@@ -62,9 +63,9 @@ export async function fetchRun(p: RunParams): Promise<Timeline> {
   if (STATIC) {
     const idx = await loadIndex()
     const run = nearestRun(idx.runs, p)
-    if (!run) throw new Error(`в демо нет запечённого прогона для «${p.scenario}»`)
+    if (!run) throw new Error(t().api.noBaked(p.scenario))
     const r = await fetch(`${RUNS_BASE}${run.file}`)
-    if (!r.ok) throw new Error(`демо-прогон: HTTP ${r.status}`)
+    if (!r.ok) throw new Error(t().api.demoRun(r.status))
     return r.json() as Promise<Timeline>
   }
 

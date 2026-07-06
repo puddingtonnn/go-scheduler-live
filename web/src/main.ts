@@ -7,12 +7,14 @@ import { Controls } from './controls'
 import { parseShare, buildShare } from './share'
 import { EventLog } from './ui/eventlog'
 import { midAliases } from './scene/layout'
+import { t, getLang, scenarioTitle, scenarioDesc } from './i18n'
 
 // Composition root: builds the DOM chrome (header + GC strip + legend) around the
 // canvas stage and the control bar, then on each run fetches a Timeline,
 // (re)configures the scene + chrome, and drives both from a fresh virtual-clock
 // Player. The old player is paused so only one clock ticks.
 async function boot(): Promise<void> {
+  document.documentElement.lang = getLang()
   const root = document.getElementById('app')
   if (!root) throw new Error('#app not found')
 
@@ -26,9 +28,9 @@ async function boot(): Promise<void> {
   let scenarios: ScenarioInfo[]
   try {
     scenarios = await fetchScenarios()
-    if (!scenarios.length) throw new Error('сервер не вернул ни одного сценария')
+    if (!scenarios.length) throw new Error(t().boot.noScenarios)
   } catch (e) {
-    showFatal(root, 'Не удалось загрузить сценарии', e)
+    showFatal(root, t().boot.loadFail, e)
     return
   }
 
@@ -132,7 +134,7 @@ async function boot(): Promise<void> {
       p.play()
     } catch (e) {
       if (gen !== runGen) return
-      errorBox.textContent = `Ошибка запуска: ${msg(e)}. Проверьте, что бэкенд запущен.`
+      errorBox.textContent = t().boot.runError(msg(e))
       errorBox.style.display = 'block'
     } finally {
       // A superseded run must not clear the loading state the newer run set.
@@ -181,9 +183,9 @@ function showFatal(root: HTMLElement, title: string, e: unknown): void {
   h.textContent = title
   const p = document.createElement('div')
   p.className = 'fatal-msg'
-  p.textContent = `${msg(e)} — запустите бэкенд (go run ./cmd/server -addr :8085) и обновите страницу.`
+  p.textContent = t().boot.backendHint(msg(e))
   const btn = document.createElement('button')
-  btn.textContent = 'Повторить'
+  btn.textContent = t().boot.retry
   btn.addEventListener('click', () => location.reload())
   card.append(h, p, btn)
   root.append(card)
@@ -200,18 +202,12 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
   const body = document.createElement('div')
   body.className = 'intro-body'
   const close = document.createElement('button')
-  close.textContent = 'Понятно'
+  close.textContent = t().intro.gotIt
   close.addEventListener('click', () => (card.style.display = 'none'))
   card.append(title, body, close)
   card.style.display = 'none'
   stage.append(card)
-  const PRIMER =
-    '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
-    'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
-    '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
-    'Внизу — подпись, что происходит сейчас, и журнал событий. ' +
-    'Колесо мыши приближает мир (id читаются вблизи), перетаскивание двигает, двойной клик — весь мир. ' +
-    'Мир — реконструкция поверх настоящего трейса: что условно, а что факт — в «Допущениях» под легендой. '
+  const PRIMER = t().intro.primer
   let primerShown = false
   let lastId: string | null = null
   return {
@@ -219,7 +215,8 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
       const id = info?.id ?? null
       if (id === lastId) return // same scenario re-run — don't nag
       lastId = id
-      const teach = info?.description ? `<span class="intro-teach">${info.description}</span>` : ''
+      const desc = scenarioDesc(info)
+      const teach = desc ? `<span class="intro-teach">${desc}</span>` : ''
       if (!primerShown) {
         primerShown = true
         body.innerHTML = PRIMER + (teach ? `<br>${teach}` : '')
@@ -227,7 +224,7 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
         if (!teach) return // nothing scenario-specific to say
         body.innerHTML = teach
       }
-      title.textContent = info?.title ?? 'Планировщик Go'
+      title.textContent = info ? scenarioTitle(info) : t().intro.defaultTitle
       card.style.display = 'block'
     },
   }
