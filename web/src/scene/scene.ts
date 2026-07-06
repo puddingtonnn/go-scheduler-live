@@ -18,11 +18,18 @@ import {
   type Pt,
 } from './iso'
 import { GLOBAL, WAITING, SYSCALL, placeIso, placeThreads, midAliases } from './layout'
+import { clampView, fitView, panBy, zoomAt, type View, type ViewBounds } from './viewport'
 import { makeGopher, type Gopher } from './gopher'
 import { threadCanvas } from './drawthread'
 import { makeThread, type ThreadSprite } from './thread'
 
 const POOF_MS = 320
+// floor796-style viewport: wheel zooms toward the cursor up to MAX_ZOOM x the
+// fit scale, drag pans, double-click resets. Id-tag Texts re-rasterize per
+// integer zoom bucket so labels stay crisp instead of scaling blurry.
+const MAX_ZOOM = 6
+const WHEEL_SENS = 0.0015
+const PAN_THRESHOLD_PX = 4
 // STW is a real but sub-millisecond pause; we flash it as a brief blink (the world
 // truly freezes, but only for an instant) — never a long held freeze, which would
 // misrepresent modern Go's whole achievement. The honest duration lives in the
@@ -136,6 +143,8 @@ export class Scene {
   private scale = 1
   private offX = 0
   private offY = 0
+  private zoom = 1 // relative to the fit scale; 1 = whole world visible
+  private tagRes = 1 // current id-tag rasterization bucket
 
   // event-cue state
   private events: TimelineEvent[] = []
@@ -170,8 +179,94 @@ export class Scene {
 
     const scene = new Scene(app, numProcs)
     scene.tooltip = makeTooltip(parent)
+    scene.attachViewport(parent)
     window.addEventListener('resize', () => scene.fit())
     return scene
+  }
+
+  // attachViewport wires the floor796-style gestures: wheel = zoom toward the
+  // cursor, drag = pan (with a small threshold so hovering/tooltips survive),
+  // double-click = back to the full world.
+  private attachViewport(el: HTMLElement): void {
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault()
+        const r = el.getBoundingClientRect()
+        const factor = Math.exp(-e.deltaY * WHEEL_SENS)
+        this.applyView(zoomAt(this.view(), this.bounds(), e.clientX - r.left, e.clientY - r.top, factor))
+      },
+      { passive: false },
+    )
+
+    let downX = 0
+    let downY = 0
+    let lastX = 0
+    let lastY = 0
+    let down = false
+    let panning = false
+    el.addEventListener('pointerdown', (e) => {
+      down = true
+      panning = false
+      downX = lastX = e.clientX
+      downY = lastY = e.clientY
+    })
+    window.addEventListener('pointermove', (e) => {
+      if (!down) return
+      if (!panning && Math.hypot(e.clientX - downX, e.clientY - downY) < PAN_THRESHOLD_PX) return
+      panning = true
+      el.style.cursor = 'grabbing'
+      this.applyView(panBy(this.view(), this.bounds(), e.clientX - lastX, e.clientY - lastY))
+      lastX = e.clientX
+      lastY = e.clientY
+    })
+    window.addEventListener('pointerup', () => {
+      down = false
+      panning = false
+      el.style.cursor = ''
+    })
+    el.addEventListener('dblclick', () => this.applyView(fitView(this.bounds())))
+  }
+
+  private bounds(): ViewBounds {
+    return {
+      worldW: WORLD_W,
+      worldH: WORLD_H,
+      viewW: this.app.screen.width,
+      viewH: this.app.screen.height,
+      baseScale: Math.min(this.app.screen.width / WORLD_W, this.app.screen.height / WORLD_H),
+      maxZoom: MAX_ZOOM,
+    }
+  }
+
+  private view(): View {
+    return { scale: this.scale, x: this.offX, y: this.offY }
+  }
+
+  private applyView(v: View): void {
+    const b = this.bounds()
+    this.scale = v.scale
+    this.offX = v.x
+    this.offY = v.y
+    this.zoom = v.scale / b.baseScale
+    this.world.scale.set(v.scale)
+    this.world.x = v.x
+    this.world.y = v.y
+    // Edge vignette: keep its on-screen thickness constant across zoom levels.
+    this.stwOverlay.clear()
+    this.stwOverlay.rect(0, 0, WORLD_W, WORLD_H).stroke({ width: 30 / this.zoom, color: PAL.gcStw, alpha: 1 })
+    this.retagResolution()
+    this.onLayout?.()
+  }
+
+  // retagResolution re-rasterizes id tags per integer zoom bucket: cheap (only
+  // on bucket change) and keeps "G512"/"M3" crisp at floor796 zoom depths.
+  private retagResolution(): void {
+    const bucket = Math.max(1, Math.min(4, Math.round(this.zoom)))
+    if (bucket === this.tagRes) return
+    this.tagRes = bucket
+    for (const rec of this.gophers.values()) rec.g.setTagResolution(bucket)
+    for (const rec of this.threads.values()) rec.t.setTagResolution(bucket)
   }
 
   reset(numProcs: number): void {
@@ -234,19 +329,19 @@ export class Scene {
     return { x: this.offX + p.x * this.scale, y: this.offY + p.y * this.scale }
   }
 
+  // fit re-derives the view for the current canvas size, preserving the zoom
+  // factor and the world point at the viewport center across resizes.
   private fit(): void {
-    const s = Math.min(this.app.screen.width / WORLD_W, this.app.screen.height / WORLD_H)
-    this.scale = s
-    this.offX = (this.app.screen.width - WORLD_W * s) / 2
-    this.offY = (this.app.screen.height - WORLD_H * s) / 2
-    this.world.scale.set(s)
-    this.world.x = this.offX
-    this.world.y = this.offY
-    this.stwOverlay.clear()
-    // red edge vignette: a thick stroke on the world bounds (half clipped outside)
-    // reads as the screen edges flashing, not a full-screen freeze tint.
-    this.stwOverlay.rect(0, 0, WORLD_W, WORLD_H).stroke({ width: 30, color: PAL.gcStw, alpha: 1 })
-    this.onLayout?.()
+    const b = this.bounds()
+    if (this.scale <= 0 || this.offX === 0 && this.offY === 0 && this.scale === 1) {
+      // first layout: plain fit
+      this.applyView(fitView(b))
+      return
+    }
+    const cx = (b.viewW / 2 - this.offX) / this.scale
+    const cy = (b.viewH / 2 - this.offY) / this.scale
+    const s = b.baseScale * this.zoom
+    this.applyView(clampView({ scale: s, x: b.viewW / 2 - cx * s, y: b.viewH / 2 - cy * s }, b))
   }
 
   // detectCues looks at the playback step (lastT, t] for a stop-the-world pause and
@@ -320,6 +415,7 @@ export class Scene {
     g.container.zIndex = y
     g.setLabel(`G${gid}`)
     g.showLabel(this.showIds)
+    g.setTagResolution(this.tagRes)
 
     const c = g.container
     c.eventMode = 'static'
@@ -341,6 +437,7 @@ export class Scene {
     t.container.visible = this.showThreads
     t.setLabel(`M${this.midAlias.get(mid) ?? mid}`)
     t.showLabel(this.showIds)
+    t.setTagResolution(this.tagRes)
 
     const c = t.container
     c.eventMode = 'static'

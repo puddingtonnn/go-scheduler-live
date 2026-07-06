@@ -343,3 +343,4 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   if (text !== undefined) e.textContent = text
   return e
 }
+

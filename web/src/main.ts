@@ -5,6 +5,8 @@ import { Scene } from './scene/scene'
 import { Chrome } from './ui/chrome'
 import { Controls } from './controls'
 import { parseShare, buildShare } from './share'
+import { EventLog } from './ui/eventlog'
+import { midAliases } from './scene/layout'
 
 // Composition root: builds the DOM chrome (header + GC strip + legend) around the
 // canvas stage and the control bar, then on each run fetches a Timeline,
@@ -42,13 +44,15 @@ async function boot(): Promise<void> {
   let player: Player | null = null
   let timeline: Timeline | null = null
 
-  root.append(chrome.header, stage, chrome.legend)
+  const eventLog = new EventLog()
+  root.append(chrome.header, stage, eventLog.root, chrome.legend)
   const controls = new Controls(
     root,
     scenarios,
     (p) => void run(p),
     () => scene?.toggleIds() ?? false,
     () => scene?.toggleThreads() ?? false,
+    () => eventLog.toggle(),
     (info) => chrome.setScenario(info),
   )
 
@@ -102,6 +106,7 @@ async function boot(): Promise<void> {
       scene.loadTimeline(tl)
       chrome.setProcs(tl.meta.numProcs)
       chrome.setTimeline(tl)
+      eventLog.build(tl.events, midAliases(tl.events))
       chrome.setScenario(scenarioInfo(params.scenario))
       intro.show(scenarioInfo(params.scenario))
 
@@ -110,6 +115,7 @@ async function boot(): Promise<void> {
       p.onTick = (w) => {
         sc.setWorld(w)
         chrome.update(w)
+        eventLog.setT(w.t)
         controls.sync()
         // Paused emits are discrete (seek/step/pause) — safe to mirror into the
         // URL; while playing the URL keeps the run params without t.
@@ -200,7 +206,8 @@ function makeIntro(stage: HTMLElement): { show(info: ScenarioInfo | undefined): 
         '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
         'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
         '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
-        'Внизу — подпись, что происходит сейчас. ' +
+        'Внизу — подпись, что происходит сейчас, и журнал событий. ' +
+        'Колесо мыши приближает мир (id читаются вблизи), перетаскивание двигает, двойной клик — весь мир. ' +
         (info?.description ? `<br><span class="intro-teach">${info.description}</span>` : '')
       card.style.display = 'block'
       close.addEventListener('click', () => (dismissed = true), { once: true })

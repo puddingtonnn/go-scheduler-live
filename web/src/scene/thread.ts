@@ -10,6 +10,8 @@ export interface ThreadSprite {
   setTexture(t: Texture): void
   setLabel(text: string): void
   showLabel(v: boolean): void
+  /** re-rasterize the tag text for the given zoom bucket (crisp when zoomed). */
+  setTagResolution(r: number): void
   setScale(s: number): void
   setAlpha(a: number): void
 }
@@ -57,6 +59,9 @@ export function makeThread(tagColor: string): ThreadSprite {
     },
     showLabel: (v) => {
       tag.visible = v
+    },
+    setTagResolution: (r) => {
+      text.resolution = r
     },
     setScale: (s) => {
       sprite.scale.set(s) // anchored at the base, so the base stays planted

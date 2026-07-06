@@ -12,6 +12,8 @@ export interface Gopher {
   setLabel(text: string): void
   setTagColor(hex: string): void
   showLabel(v: boolean): void
+  /** re-rasterize the tag text for the given zoom bucket (crisp when zoomed). */
+  setTagResolution(r: number): void
   /** offset the sprite within the container (bob / sway). */
   setOffset(dx: number, dy: number): void
   /** render scale of the sprite (feet stay planted); shrinks queue/zone crowds. */
@@ -67,6 +69,9 @@ export function makeGopher(): Gopher {
     },
     showLabel: (v) => {
       tag.visible = v
+    },
+    setTagResolution: (r) => {
+      text.resolution = r
     },
     setOffset: (dx, dy) => {
       sprite.position.set(dx, dy)

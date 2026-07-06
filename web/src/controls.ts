@@ -26,6 +26,7 @@ export class Controls {
     private readonly onRun: (p: RunParams) => void,
     private readonly onToggleIds?: () => boolean,
     private readonly onToggleThreads?: () => boolean,
+    private readonly onToggleLog?: () => boolean,
     private readonly onScenarioChange?: (info: ScenarioInfo) => void,
   ) {
     const bar = document.createElement('div')
@@ -60,6 +61,16 @@ export class Controls {
     // M carriers are shown by default in the scene, so the toggle starts active.
     mBtn.classList.add('active')
     mBtn.setAttribute('aria-pressed', 'true')
+
+    const logBtn = button('лог', () => {
+      const on = this.onToggleLog?.() ?? false
+      logBtn.classList.toggle('active', on)
+      logBtn.setAttribute('aria-pressed', String(on))
+    })
+    logBtn.title = 'показать журнал событий'
+    // the event log is visible by default, so the toggle starts active.
+    logBtn.classList.add('active')
+    logBtn.setAttribute('aria-pressed', 'true')
 
     const speeds = document.createElement('div')
     speeds.className = 'speeds'
@@ -122,6 +133,7 @@ export class Controls {
       this.time,
       idBtn,
       mBtn,
+      logBtn,
       sep(),
       labeled('сценарий', this.scenarioSel),
       labeled('GOMAXPROCS', this.procsInput),

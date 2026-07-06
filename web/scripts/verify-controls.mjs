@@ -88,6 +88,13 @@ await mBtn.click()
 ok('M toggle flips state', (await mBtn.evaluate((e) => e.classList.contains('active'))) !== mWasActive)
 await mBtn.click() // back on: carriers visible for the screenshots below
 
+// 7c. event log toggle
+const logBtn = page.locator('.controls button', { hasText: /^лог$/ }).first()
+const logVisibleBefore = await page.locator('.event-log').isVisible()
+await logBtn.click()
+ok('log toggle hides/shows the journal', (await page.locator('.event-log').isVisible()) !== logVisibleBefore)
+await logBtn.click() // back on
+
 // 8. Scenario change + run → gcpressure (real GC)
 await page.evaluate(() => {
   const sel = document.querySelector('.controls select'); sel.value = 'gcpressure'; sel.dispatchEvent(new Event('change'))
