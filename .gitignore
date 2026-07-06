@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
+
+# OS / local junk
+.DS_Store
+/node_modules/
+/server
+*.zip
+design_handoff*/
