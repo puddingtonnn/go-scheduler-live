@@ -117,19 +117,7 @@ export class Chrome {
       item.append(dot, document.createTextNode(name))
       this.legend.append(item)
     }
-    this.legend.append(
-      el(
-        'div',
-        'legend-note',
-        'Локальные очереди и кража работы — реконструкция из трейса (рантайм их не пишет): горутины раскладываем ' +
-          'по P (в лейне видны первые 6 — у реального P ёмкость 256, остальные уходят в глобальную очередь), ' +
-          'простаивающий P подсвечивается при краже. GC-фазы, STW и куча — настоящие данные трейса: куча ' +
-          'даунсэмплится (≥2 мс) и показана как доля от цели (цель мягкая — куча может её слегка превышать); ' +
-          'фазы sweep и mark-assist опущены, а конкурентная разметка ещё забирает ~25% CPU у фоновых GC-воркеров. ' +
-          'M (OS-потоки) — настоящие потоки из событий трейса (на бирке — порядковый номер, реальный id в тултипе); ' +
-          'спящие (запаркованные) M трейс не показывает — тележка исчезает и появляется снова.',
-      ),
-    )
+    this.legend.append(buildAssumptions())
 
     // --- zone pills ---
     const over: Partial<Record<ZoneKey, HTMLSpanElement>> = {}
@@ -344,3 +332,53 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e
 }
 
+// buildAssumptions renders the honesty disclosure under the legend: an
+// always-visible summary line that expands into the full list of what this world
+// reconstructs, compresses or omits versus the real runtime — and what is a hard
+// trace fact. The trace records only goroutine state transitions, so queue
+// membership, steals and M lifecycle are simply not in the data; this panel is
+// where the site says so out loud instead of hiding it in tooltips.
+function buildAssumptions(): HTMLDetailsElement {
+  const box = document.createElement('details')
+  box.className = 'assumptions'
+  const sum = document.createElement('summary')
+  sum.textContent = 'Допущения: что в этом мире условно, а что — настоящие данные трейса'
+  box.append(sum)
+  const body = el('div', 'assume-body')
+  const group = (title: string, items: string[]): void => {
+    const g = el('div', 'assume-group')
+    g.append(el('b', undefined, title))
+    const ul = document.createElement('ul')
+    for (const it of items) ul.append(el('li', undefined, it))
+    g.append(ul)
+    body.append(g)
+  }
+  group('Реконструкция — рантайм этого не записывает', [
+    'Состав очередей: горутины приписаны к «своему» P условно (стабильная раскладка). Реальную локальную очередь (256 слотов + приоритетный runnext — он не показан) трейс не отдаёт.',
+    'Кража работы — эвристика «стала runnable на одном P, побежала на другом». Бывают ложные срабатывания (подбор из глобальной очереди, возврат из syscall) — потому везде пометка «(реконстр.)».',
+    'При пробуждении трейс называет P будильщика — в чью очередь встала горутина, неизвестно.',
+  ])
+  group('Масштаб и время', [
+    'Скорость 1× — весь прогон за ~90 с; реальный трейс длится десятки миллисекунд. Всё замедлено в тысячи раз, перемещения гоферов — анимация.',
+    'STW-вспышка растянута до ~⅓ секунды, чтобы её было видно; реальная пауза — микросекунды-миллисекунды (честная цифра — в подписи).',
+    'В лейне P видны 6 горутин, остальные — бейдж «+N» или глобальная очередь.',
+  ])
+  group('Опущено', [
+    'GC: фазы sweep и mark-assist; то, что фоновые mark-воркеры забирают ~25% CPU; цель кучи мягкая — реальная куча может её превышать.',
+    'Причина вытеснения с P (трейс её не пишет), netpoller и sysmon как отдельные сущности, внутренности аллокатора (gFree, mcache).',
+    'Запаркованные M: их жизненного цикла в трейсе нет — тележка просто исчезает. На бирке — порядковый номер, реальный id ОС — в тултипе.',
+  ])
+  group('Данные и сценарии', [
+    'Кривая кучи даунсэмплена: точки не чаще раза в 2 мс.',
+    'Сценарии нарочно замедлены CPU-работой, чтобы поток событий был обозримым, — продовый код так не пишут.',
+  ])
+  body.append(
+    el(
+      'div',
+      'assume-real',
+      'Настоящее — всё остальное, напрямую из runtime/trace: события и их время, состояния горутин, привязки P и M, циклы GC и длительности STW, метрики кучи, причины блокировок.',
+    ),
+  )
+  box.append(body)
+  return box
+}

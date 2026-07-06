@@ -374,13 +374,55 @@
         height: 11px;
         border-radius: 50%;
       }
-      .legend-note {
+      /* honesty disclosure: summary line always visible, expands to the full
+         assumptions list (built in chrome.ts buildAssumptions) */
+      .assumptions {
         width: 100%;
         margin-top: 2px;
         font-family: var(--mn);
         font-size: 11px;
-        line-height: 1.4;
-        color: var(--tx-dim);
+        line-height: 1.5;
+        color: var(--tx-mid);
+      }
+      .assumptions summary {
+        cursor: pointer;
+        color: var(--runnable);
+        user-select: none;
+      }
+      .assumptions summary:hover {
+        color: var(--tx-hi);
+      }
+      .assume-body {
+        margin-top: 8px;
+        columns: 2;
+        column-gap: 28px;
+      }
+      @media (max-width: 900px) {
+        .assume-body {
+          columns: 1;
+        }
+      }
+      .assume-group {
+        break-inside: avoid;
+        margin-bottom: 8px;
+      }
+      .assume-group b {
+        color: var(--tx-hi);
+        font-weight: 600;
+      }
+      .assume-group ul {
+        margin: 4px 0 0;
+        padding-left: 16px;
+      }
+      .assume-group li {
+        margin-bottom: 3px;
+      }
+      .assume-real {
+        break-inside: avoid;
+        padding: 6px 8px;
+        border-left: 2px solid var(--teal);
+        background: color-mix(in srgb, var(--teal) 8%, transparent);
+        color: var(--tx-mid);
       }
 
       /* --- control bar (logic in controls.ts; pixel-palette retheme) --- */

@@ -180,7 +180,14 @@ export class Scene {
     const scene = new Scene(app, numProcs)
     scene.tooltip = makeTooltip(parent)
     scene.attachViewport(parent)
-    window.addEventListener('resize', () => scene.fit())
+    // Observe the stage element itself, not just the window: the stage also
+    // shrinks/grows when sibling DOM changes height (e.g. the assumptions
+    // disclosure expands) — Pixi's resizeTo only reacts to window resizes, so
+    // without this the canvas would overhang the stage and cover the DOM below.
+    new ResizeObserver(() => {
+      app.resize()
+      scene.fit()
+    }).observe(parent)
     return scene
   }
 

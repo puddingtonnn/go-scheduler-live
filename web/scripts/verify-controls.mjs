@@ -95,6 +95,13 @@ await logBtn.click()
 ok('log toggle hides/shows the journal', (await page.locator('.event-log').isVisible()) !== logVisibleBefore)
 await logBtn.click() // back on
 
+// 7d. assumptions disclosure under the legend
+const assume = page.locator('.assumptions summary')
+await assume.click()
+ok('assumptions panel opens', await page.locator('.assumptions').evaluate((e) => e.open))
+ok('assumptions list the reconstruction caveat', /реконструкц/i.test(await page.locator('.assume-body').textContent()))
+await assume.click()
+
 // 8. Scenario change auto-runs (no Запустить needed) → gcpressure (real GC)
 await page.evaluate(() => {
   const sel = document.querySelector('.controls select'); sel.value = 'gcpressure'; sel.dispatchEvent(new Event('change'))
