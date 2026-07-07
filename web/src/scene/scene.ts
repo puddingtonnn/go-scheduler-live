@@ -20,6 +20,20 @@ import {
 } from './iso'
 import { GLOBAL, WAITING, SYSCALL, placeIso, placeThreads, zoneTotals, midAliases } from './layout'
 import { buildBackdrop, type Backdrop } from './backdrop'
+import { heapPct, gcPhase } from '../ui/derive'
+import { heapTileCount } from './heap'
+import { botTarget } from './bot'
+import {
+  drawBoothShell,
+  drawBoothFx,
+  drawBelt,
+  drawHeapPile,
+  drawRobot,
+  drawSiren,
+  HEAP_CENTER,
+  BOT_DOCK,
+  SIREN_POS,
+} from './factory'
 import { clampView, fitView, panBy, zoomAt, type View, type ViewBounds } from './viewport'
 import { makeGopher, type Gopher } from './gopher'
 import { threadCanvas } from './drawthread'
@@ -150,6 +164,9 @@ export class Scene {
   private durationNs = 0
   private lastT = -1
   private stwFlash = 0
+  private frozenAnimT = 0 // animT latched while STW-frozen so structures stop with the world
+  private heapCount = 2 // heap pile tile count from the real heap fill
+  private gcMark = false // concurrent mark active → robot sweeps, heap pulses
   private stations: Pt[] = []
   private occupied: boolean[] = []
   private stationGlow: number[] = []
@@ -313,6 +330,9 @@ export class Scene {
     this.place(world)
     // departure board: the real (reconstructed) global-queue size.
     this.backdrop.setGlobalCount(zoneTotals(world, this.numProcs).global)
+    // GC yard: heap pile size from the real heap fill, robot/pulse from the mark phase.
+    this.heapCount = heapTileCount(heapPct(world) ?? 0)
+    this.gcMark = gcPhase(world).kind === 'mark'
   }
 
   toggleIds(): boolean {
@@ -333,7 +353,10 @@ export class Scene {
     this.occupied = this.stations.map(() => false)
     this.stationGlow = this.stations.map(() => 0)
     this.stationsG.clear()
-    for (const st of this.stations) drawStation(this.stationsG, st.x, st.y)
+    for (const st of this.stations) {
+      drawStation(this.stationsG, st.x, st.y)
+      drawBoothShell(this.stationsG, st.x, st.y)
+    }
     this.zoneFloorG.clear()
     drawProps(this.zoneFloorG)
     drawZoneFloor(this.zoneFloorG, GLOBAL.x, GLOBAL.y, GLOBAL.w, GLOBAL.h, PAL.runnable)
@@ -475,20 +498,30 @@ export class Scene {
     this.stwOverlay.alpha = this.stwFlash * 0.45
     this.stwOverlay.visible = this.stwFlash > 0
 
-    // fx layer: idle-P markers + fading steal glows
-    let glowing = false
+    const frozen = this.stwFlash > 0
+    // structures (belt/fan/heap/robot) latch to a frozen clock during STW so the
+    // world truly stops with the vignette; the siren keeps flashing.
+    if (!frozen) this.frozenAnimT = this.animT
+    const aT = frozen ? this.frozenAnimT : this.animT
+
+    // fx layer: conveyor belts + booth fans/steam + idle-P markers + steal glows,
+    // then the central GC yard (heap pile + cleaning robot + siren).
     this.fxG.clear()
     for (let pid = 0; pid < this.stations.length; pid++) {
       const st = this.stations[pid]
+      drawBelt(this.fxG, st.x, st.y, aT)
       if (!this.occupied[pid]) drawIdleMarker(this.fxG, st.x, st.y)
+      drawBoothFx(this.fxG, st.x, st.y, this.occupied[pid], aT)
       if (this.stationGlow[pid] > 0) {
         this.stationGlow[pid] = Math.max(0, this.stationGlow[pid] - dtMs / GLOW_MS)
         drawStationGlow(this.fxG, st.x, st.y, this.stationGlow[pid])
-        glowing = glowing || this.stationGlow[pid] > 0
       }
     }
+    const bot = botTarget(this.gcMark && !frozen, aT, HEAP_CENTER, BOT_DOCK)
+    drawHeapPile(this.fxG, HEAP_CENTER, this.heapCount, this.gcMark, frozen, aT, bot)
+    drawRobot(this.fxG, bot.x, bot.y, bot.sweeping, frozen, this.animT)
+    drawSiren(this.fxG, SIREN_POS.x, SIREN_POS.y, this.stwFlash, this.animT)
 
-    const frozen = this.stwFlash > 0
     for (const [gid, rec] of this.gophers) {
       const c = rec.g.container
 
