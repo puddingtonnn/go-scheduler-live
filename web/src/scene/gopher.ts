@@ -16,6 +16,8 @@ export interface Gopher {
   setTagResolution(r: number): void
   /** offset the sprite within the container (bob / sway). */
   setOffset(dx: number, dy: number): void
+  /** face the sprite left (-1) or right (+1); flips only the sprite, tag stays upright. */
+  setFacing(dir: 1 | -1): void
   /** render scale of the sprite (feet stay planted); shrinks queue/zone crowds. */
   setScale(s: number): void
   /** container alpha, for the dead poof. */
@@ -53,6 +55,14 @@ export function makeGopher(): Gopher {
 
   container.addChild(sprite, tag)
 
+  // Track scale magnitude + facing separately so setScale and setFacing compose
+  // (facing flips scale.x's sign; scale sets its magnitude).
+  let curScale = 1
+  let facing: 1 | -1 = 1
+  const applyScale = (): void => {
+    sprite.scale.set(curScale * facing, curScale)
+  }
+
   return {
     container,
     setTexture: (t) => {
@@ -76,8 +86,15 @@ export function makeGopher(): Gopher {
     setOffset: (dx, dy) => {
       sprite.position.set(dx, dy)
     },
+    setFacing: (dir) => {
+      if (dir !== facing) {
+        facing = dir
+        applyScale()
+      }
+    },
     setScale: (s) => {
-      sprite.scale.set(s) // anchored at the feet, so the feet stay planted
+      curScale = s // anchored at the feet, so the feet stay planted
+      applyScale()
       tag.y = (HEAD_TOP_FROM_FEET - 5) * s // keep the id tag a proportional gap above the scaled head
     },
     setAlpha: (a) => {

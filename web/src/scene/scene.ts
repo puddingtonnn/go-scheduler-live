@@ -34,6 +34,7 @@ import {
   BOT_DOCK,
   SIREN_POS,
 } from './factory'
+import { walkKind, buildPath, walkAt, isHop, type WalkPath, type WalkConsts } from './walk'
 import { clampView, fitView, panBy, zoomAt, type View, type ViewBounds } from './viewport'
 import { makeGopher, type Gopher } from './gopher'
 import { threadCanvas } from './drawthread'
@@ -53,6 +54,22 @@ const PAN_THRESHOLD_PX = 4
 // STW_FLASH_MS is shared with the chrome banner (see player/gc.ts) so both fade together.
 const GLOW_MS = 600
 
+// Data-driven walks (opt-in via ?walk): when a real state transition lands on a
+// playback step, the gopher walks a routed path to its new spot instead of the
+// straight lerp. The tween is cosmetic (wall-clock paced, capped), tied to a real
+// transition. The proven lerp stays the default so this stays a contained experiment.
+const WALK_FPS = 7
+const MIN_WALK_DIST = 26 // px; smaller moves just lerp (no detour)
+const MAX_WALKS = 40 // cap concurrent walks so a burst degrades to lerp, not jank
+const WALK_CONSTS: WalkConsts = { corridorY: 214, spawnGate: { x: 44, y: 44 }, exitGate: { x: 532, y: 44 } }
+function walkDuration(len: number): number {
+  return Math.max(380, Math.min(820, len * 4))
+}
+// Captured at module import — before main.ts's first run rewrites the address bar
+// via history.replaceState (which drops the ?walk flag). Reading it in the Scene
+// constructor would be too late (the flag would already be gone).
+const WALKS_ENABLED = typeof location !== 'undefined' && new URLSearchParams(location.search).has('walk')
+
 // State names for tooltips come from the i18n dictionary (scene.states).
 
 type AnimKind = GState
@@ -66,6 +83,7 @@ interface Rec {
   kind: AnimKind
   phase: number // per-gopher animation phase offset (de-syncs the crowd)
   dying: number // dead-poof timer (ms remaining); 0 = alive
+  walk?: { path: WalkPath; elapsed: number; dur: number; hop: boolean } // active routed walk (?walk)
 }
 
 // bakeTextures bakes a small frame atlas per animated state once; the scene cycles
@@ -94,6 +112,12 @@ function bakeTextures() {
       { state: 'syscall', flip: true, dots: 3 },
     ]),
     dead: arr([{ state: 'dead', dead: true }]),
+    // travel pose for routed walks (?walk): a neutral amber gopher, arms up, with
+    // motion lines; facing is flipped live by the sprite, so bake it unflipped.
+    walk: arr([
+      { state: 'runnable', run: true, motion: true, armPhase: 1 },
+      { state: 'runnable', run: true, motion: true, armPhase: -1 },
+    ]),
     frozen: t({ frozen: true, bang: true }),
   }
 }
@@ -164,6 +188,9 @@ export class Scene {
   private durationNs = 0
   private lastT = -1
   private stwFlash = 0
+  private readonly walksEnabled = WALKS_ENABLED
+  private stepPlayback = false // was the last setWorld a forward playback step (vs a scrub/seek)?
+  private activeWalks = 0
   private frozenAnimT = 0 // animT latched while STW-frozen so structures stop with the world
   private heapCount = 2 // heap pile tile count from the real heap fill
   private gcMark = false // concurrent mark active → robot sweeps, heap pulses
@@ -302,6 +329,7 @@ export class Scene {
 
   reset(numProcs: number): void {
     this.numProcs = numProcs
+    this.activeWalks = 0
     for (const rec of this.gophers.values()) rec.g.container.destroy()
     this.gophers.clear()
     for (const rec of this.threads.values()) rec.t.container.destroy()
@@ -322,6 +350,7 @@ export class Scene {
     this.durationNs = tl.meta.durationNs
     this.lastT = -1
     this.stwFlash = 0
+    this.activeWalks = 0
     this.stationGlow = this.stations.map(() => 0)
   }
 
@@ -389,7 +418,10 @@ export class Scene {
   private detectCues(world: WorldState): void {
     const t = world.t
     this.occupied = this.stations.map((_, pid) => (world.procs[pid]?.gid ?? -1) >= 0)
-    if (isPlaybackStep(this.lastT, t, this.durationNs)) {
+    // capture the step verdict before lastT is advanced — place() (which starts
+    // walks) runs after this and needs it.
+    this.stepPlayback = isPlaybackStep(this.lastT, t, this.durationNs)
+    if (this.stepPlayback) {
       if (stwInWindow(this.gc, this.lastT, t)) this.stwFlash = 1
       const burst = stealBurst(this.events, t, STEAL_LOOKBACK_NS)
       if (burst && burst.pid < this.stationGlow.length) this.stationGlow[burst.pid] = 1
@@ -400,17 +432,24 @@ export class Scene {
   private place(world: WorldState): void {
     const places = placeIso(world, this.numProcs)
     for (const [gid, p] of places) {
+      const existed = this.gophers.has(gid)
       let rec = this.gophers.get(gid)
       if (!rec) rec = this.spawn(gid, p.x, p.y)
       rec.dying = 0
+      const v = world.goroutines.get(gid)!
+      const prevState = rec.view?.state
+
+      // Data-driven walk (?walk): on a real live-state transition during playback,
+      // route a walk from the gopher's current spot to its new target. On a scrub/seek
+      // (not a playback step), drop any walk and snap via the normal lerp.
+      if (this.walksEnabled) this.maybeWalk(rec, existed, prevState, v.state, p.x, p.y)
+
       rec.tx = p.x
       rec.ty = p.y
       if (rec.scale !== p.scale) {
         rec.scale = p.scale
         rec.g.setScale(p.scale)
       }
-      const v = world.goroutines.get(gid)!
-      const prevState = rec.view?.state
       rec.view = v
       if (v.state !== prevState) rec.g.setTagColor(stateColors(v.state)[0])
       rec.kind = v.state
@@ -422,6 +461,7 @@ export class Scene {
         rec.dying = POOF_MS
         rec.kind = 'dead'
       } else {
+        this.endWalk(rec)
         rec.g.container.destroy()
         this.gophers.delete(gid)
       }
@@ -446,6 +486,32 @@ export class Scene {
       rec.t.container.destroy()
       this.threads.delete(mid)
     }
+  }
+
+  // maybeWalk starts a routed walk on a real live-state transition (playback only),
+  // or drops a stale walk on a scrub/seek. Only the 4 live states walk — dead poofs
+  // and fresh spawns just appear. Capped by MAX_WALKS so a burst degrades to lerp.
+  private maybeWalk(rec: Rec, existed: boolean, prev: GState | undefined, next: GState, tx: number, ty: number): void {
+    if (!this.stepPlayback) {
+      this.endWalk(rec)
+      return
+    }
+    if (!existed || this.stwFlash > 0 || next === prev) return
+    const kind = walkKind(prev, next)
+    if (!kind || kind === 'spawn' || kind === 'toDead') return
+    const from = { x: rec.g.container.x, y: rec.g.container.y }
+    const dist = Math.hypot(tx - from.x, ty - from.y)
+    if (dist < MIN_WALK_DIST || this.activeWalks >= MAX_WALKS) return
+    const path = buildPath(from, { x: tx, y: ty }, kind, WALK_CONSTS)
+    if (!rec.walk) this.activeWalks++
+    rec.walk = { path, elapsed: 0, dur: walkDuration(path.len), hop: isHop(path) }
+  }
+
+  private endWalk(rec: Rec): void {
+    if (!rec.walk) return
+    rec.walk = undefined
+    rec.g.setFacing(1)
+    this.activeWalks = Math.max(0, this.activeWalks - 1)
   }
 
   private spawn(gid: number, x: number, y: number): Rec {
@@ -537,6 +603,33 @@ export class Scene {
           c.destroy()
           this.gophers.delete(gid)
         }
+        continue
+      }
+
+      // active routed walk (?walk): follow the path with facing + a gait; on arrival
+      // hand back to the lerp. Paused (skipped) while frozen so the world truly stops.
+      if (rec.walk && !frozen) {
+        const wk = rec.walk
+        wk.elapsed += dtMs
+        const p = wk.elapsed / wk.dur
+        if (p >= 1) {
+          c.x = rec.tx
+          c.y = rec.ty
+          this.endWalk(rec)
+          this.applyMotion(rec, frozen)
+          rec.g.setTexture(this.frameFor(rec))
+        } else {
+          const s = walkAt(wk.path, p)
+          c.x = s.x
+          c.y = s.y
+          if (s.dx !== 0) rec.g.setFacing(s.dx < 0 ? -1 : 1)
+          const bob = wk.hop
+            ? -Math.sin(Math.PI * p) * 9 // short move → a little hop arc
+            : -Math.abs(Math.sin(this.animT * 11 + rec.phase)) * 1.4 // stroll → gentle gait
+          rec.g.setOffset(0, bob)
+          rec.g.setTexture(this.tex.walk[Math.floor(this.animT * WALK_FPS + rec.phase) % this.tex.walk.length])
+        }
+        c.zIndex = c.y
         continue
       }
 
