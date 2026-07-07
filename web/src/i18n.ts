@@ -57,6 +57,14 @@ const RU = {
     steal: 'кража',
   },
 
+  factory: {
+    sign: 'GO SCHEDULER',
+    signSub: 'цех планирования · смена 24/7',
+    spawn: 'main()',
+    exit: 'ВЫХОД',
+    board: 'GLOBAL QUEUE',
+  },
+
   gcPhase: {
     idle: 'GC: простой',
     mark: 'GC: парал. маркировка',
@@ -256,6 +264,14 @@ const EN: Strings = {
     mark: 'concurrent mark',
     stw: 'STW pause',
     steal: 'steal',
+  },
+
+  factory: {
+    sign: 'GO SCHEDULER',
+    signSub: 'scheduling floor · shift 24/7',
+    spawn: 'main()',
+    exit: 'EXIT',
+    board: 'GLOBAL QUEUE',
   },
 
   gcPhase: {

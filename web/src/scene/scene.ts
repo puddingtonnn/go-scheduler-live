@@ -18,7 +18,8 @@ import {
   WORLD_H,
   type Pt,
 } from './iso'
-import { GLOBAL, WAITING, SYSCALL, placeIso, placeThreads, midAliases } from './layout'
+import { GLOBAL, WAITING, SYSCALL, placeIso, placeThreads, zoneTotals, midAliases } from './layout'
+import { buildBackdrop, type Backdrop } from './backdrop'
 import { clampView, fitView, panBy, zoomAt, type View, type ViewBounds } from './viewport'
 import { makeGopher, type Gopher } from './gopher'
 import { threadCanvas } from './drawthread'
@@ -126,6 +127,7 @@ export class Scene {
   private readonly grid = new Graphics()
   private readonly stationsG = new Graphics()
   private readonly zoneFloorG = new Graphics()
+  private readonly backdrop: Backdrop = buildBackdrop({ global: GLOBAL, waiting: WAITING, syscall: SYSCALL })
   private readonly fxG = new Graphics()
   private readonly gopherLayer = new Container()
   private readonly stwOverlay = new Graphics()
@@ -157,7 +159,17 @@ export class Scene {
     private numProcs: number,
   ) {
     this.gopherLayer.sortableChildren = true
-    this.world.addChild(this.grid, this.zoneFloorG, this.stationsG, this.fxG, this.gopherLayer, this.stwOverlay)
+    // world layers back→front: grid → zone platters/props → factory backdrop
+    // (wall/gates/board/bunks/stalls) → P stations → fx → gophers+threads → STW.
+    this.world.addChild(
+      this.grid,
+      this.zoneFloorG,
+      this.backdrop.container,
+      this.stationsG,
+      this.fxG,
+      this.gopherLayer,
+      this.stwOverlay,
+    )
     app.stage.addChild(this.world)
     drawGrid(this.grid)
     this.grid.alpha = 0.5
@@ -299,6 +311,8 @@ export class Scene {
   setWorld(world: WorldState): void {
     this.detectCues(world)
     this.place(world)
+    // departure board: the real (reconstructed) global-queue size.
+    this.backdrop.setGlobalCount(zoneTotals(world, this.numProcs).global)
   }
 
   toggleIds(): boolean {
