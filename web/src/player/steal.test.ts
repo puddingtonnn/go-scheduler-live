@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stealBurst, pluralGor } from './steal'
+import { stealBurst, stealMarks, pluralGor } from './steal'
 import { NO_RESOURCE, type TimelineEvent } from '../model/timeline'
 
 function ev(t: number, type: TimelineEvent['type'], extra: Partial<TimelineEvent> = {}): TimelineEvent {
@@ -27,6 +27,40 @@ describe('stealBurst', () => {
       ev(95, 'g_run_start', { gid: 2, pid: 2 }), // not stolen
     ]
     expect(stealBurst(events, 100, 50)).toBeNull()
+  })
+})
+
+describe('stealMarks', () => {
+  it('folds two stolen starts within the window on one P into a single mark', () => {
+    const events = [
+      ev(1000, 'g_run_start', { gid: 1, pid: 3, stolen: true }),
+      ev(1000 + 500, 'g_run_start', { gid: 2, pid: 3, stolen: true }),
+    ]
+    expect(stealMarks(events, 1000)).toEqual([{ tNs: 1000, pid: 3, count: 2 }])
+  })
+
+  it('splits stolen starts beyond the window into separate marks', () => {
+    const events = [
+      ev(1000, 'g_run_start', { gid: 1, pid: 3, stolen: true }),
+      ev(1000 + 3000, 'g_run_start', { gid: 2, pid: 3, stolen: true }),
+    ]
+    expect(stealMarks(events, 1000)).toEqual([
+      { tNs: 1000, pid: 3, count: 1 },
+      { tNs: 4000, pid: 3, count: 1 },
+    ])
+  })
+
+  it('keeps bursts on different Ps independent and ignores non-stolen starts', () => {
+    const events = [
+      ev(1000, 'g_run_start', { gid: 1, pid: 0, stolen: true }),
+      ev(1100, 'g_run_start', { gid: 2, pid: 1, stolen: true }),
+      ev(1200, 'g_run_start', { gid: 3, pid: 0, stolen: true }),
+      ev(1300, 'g_run_start', { gid: 4, pid: 0 }), // not stolen — ignored
+    ]
+    expect(stealMarks(events, 1000)).toEqual([
+      { tNs: 1000, pid: 0, count: 2 },
+      { tNs: 1100, pid: 1, count: 1 },
+    ])
   })
 })
 

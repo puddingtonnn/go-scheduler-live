@@ -175,49 +175,6 @@
         white-space: nowrap;
       }
 
-      /* --- GC strip: to-scale lane of real GC ranges --- */
-      .gc-strip {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 0 18px 9px;
-      }
-      .gc-strip-cap {
-        font-family: var(--pf);
-        font-size: 11px;
-        color: var(--tx-dim);
-        width: 18px;
-      }
-      .gc-strip-track {
-        position: relative;
-        flex: 1;
-        height: 9px;
-        background: var(--bg0);
-        border: 1px solid var(--line2);
-        border-radius: 2px;
-        overflow: hidden;
-      }
-      .gc-band {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-      }
-      .gc-band.mark {
-        background: rgba(52, 201, 191, 0.55);
-      }
-      .gc-band.stw {
-        width: 2px;
-        background: var(--gc-stw);
-        box-shadow: 0 0 4px var(--gc-stw);
-      }
-      .gc-strip-head {
-        position: absolute;
-        top: -1px;
-        bottom: -1px;
-        width: 1px;
-        background: var(--tx-hi);
-        left: 0;
-      }
       .gc {
         display: flex;
         align-items: center;
@@ -451,6 +408,58 @@
       .lang-btn:hover {
         color: var(--tx-hi);
         border-color: var(--teal);
+      }
+
+      /* --- unified control-panel timeline (canvas: density + marks + STW + steals) --- */
+      .timeline {
+        background: var(--bg1);
+        border-top: 1px solid var(--line);
+        padding: 8px 14px 6px;
+      }
+      .timeline-canvas {
+        width: 100%;
+        height: 46px;
+        display: block;
+        border: 1px solid var(--line2);
+        border-radius: 2px;
+        cursor: pointer;
+        touch-action: none;
+      }
+      .timeline-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 5px;
+        font-family: var(--mn);
+        font-size: 11px;
+        color: var(--tx-dim);
+      }
+      .tl-leg {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .tl-sw {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+      }
+      .tl-sw.mark {
+        background: rgba(52, 201, 191, 0.55);
+      }
+      .tl-sw.stw {
+        width: 3px;
+        height: 12px;
+        background: var(--gc-stw);
+      }
+      .tl-sw.steal {
+        width: 8px;
+        height: 8px;
+        background: var(--gc-stw);
+        transform: rotate(45deg);
+      }
+      .tl-sw.density {
+        background: rgba(242, 181, 61, 0.5);
       }
 
       /* --- control bar (logic in controls.ts; pixel-palette retheme) --- */

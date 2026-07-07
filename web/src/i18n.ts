@@ -42,12 +42,19 @@ const RU = {
     gcTip: 'Фаза сборщика мусора: простой · конкурентная разметка (идёт вместе с горутинами) · stop-the-world (короткая пауза всего рантайма)',
     heapCap: 'куча',
     heapTip: 'Куча: живой размер как доля от цели GC (100% = цель). Цвет = фаза GC: серый — простой, бирюза — разметка, красный — STW',
-    stripTip: 'Хронология всего прогона: бирюзовые полосы — конкурентная разметка, красные тики — STW-паузы, белая линия — текущая позиция',
     readout: (cycles: number, maxStw: string) => `${cycles} цикл. · STW до ${maxStw}`,
     readoutNone: 'циклов нет',
     banner: (dur: string) => `Stop-the-world: мир замер на ${dur}`,
     langBtn: 'EN',
     langTip: 'Switch the interface to English',
+  },
+
+  timeline: {
+    tip: 'Хронология всего прогона: янтарь — плотность событий, бирюза — конкурентная разметка, красные тики — STW-паузы, ромбы — кражи. Клик/перетаскивание — переход',
+    density: 'плотность событий',
+    mark: 'парал. маркировка',
+    stw: 'STW-пауза',
+    steal: 'кража',
   },
 
   gcPhase: {
@@ -236,12 +243,19 @@ const EN: Strings = {
     gcTip: 'Garbage-collector phase: idle · concurrent mark (runs alongside goroutines) · stop-the-world (a brief pause of the whole runtime)',
     heapCap: 'heap',
     heapTip: 'Heap: live size as a fraction of the GC goal (100% = goal). Color = GC phase: gray — idle, teal — mark, red — STW',
-    stripTip: 'Timeline of the whole run: teal bands — concurrent mark, red ticks — STW pauses, white line — current position',
     readout: (cycles: number, maxStw: string) => `${cycles} cycles · STW up to ${maxStw}`,
     readoutNone: 'no cycles',
     banner: (dur: string) => `Stop-the-world: the world froze for ${dur}`,
     langBtn: 'RU',
     langTip: 'Переключить интерфейс на русский',
+  },
+
+  timeline: {
+    tip: 'Timeline of the whole run: amber — event density, teal — concurrent mark, red ticks — STW pauses, diamonds — steals. Click/drag to seek',
+    density: 'event density',
+    mark: 'concurrent mark',
+    stw: 'STW pause',
+    steal: 'steal',
   },
 
   gcPhase: {

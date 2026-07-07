@@ -59,8 +59,6 @@ export class Chrome {
   private readonly gcReadout: HTMLSpanElement
   private readonly heapFill: HTMLDivElement
   private readonly heapPctEl: HTMLSpanElement
-  private readonly stripTrack: HTMLDivElement
-  private readonly stripHead: HTMLDivElement
   private readonly caption: HTMLDivElement
   private readonly banner: HTMLDivElement
   private readonly waitSub: HTMLSpanElement
@@ -106,17 +104,11 @@ export class Chrome {
     const topRow = el('div', 'chrome-head')
     topRow.append(titleWrap, el('div', 'spacer'), gc, heap, langBtn)
 
-    // --- GC strip: a to-scale lane of the real GC ranges (mark bands + STW ticks)
-    // with a playhead. This is the honest channel: STW reads as the sliver it is. ---
-    this.stripTrack = el('div', 'gc-strip-track')
-    this.stripHead = el('div', 'gc-strip-head')
-    this.stripTrack.append(this.stripHead)
-    const strip = el('div', 'gc-strip')
-    strip.title = S.chrome.stripTip
-    strip.append(el('span', 'gc-strip-cap', 'GC'), this.stripTrack)
-
+    // The to-scale GC channel (mark bands + STW ticks + playhead) now lives in the
+    // unified control-panel timeline (ui/timeline.ts); the header keeps only the GC
+    // phase indicator + heap bar + cycle readout.
     this.header = el('header', 'chrome-header')
-    this.header.append(topRow, strip)
+    this.header.append(topRow)
 
     // --- legend ---
     this.legend = el('div', 'chrome-legend')
@@ -184,8 +176,9 @@ export class Chrome {
     this.subtitle.textContent = info ? scenarioDesc(info) : ''
   }
 
-  // setTimeline wires the per-run trace: builds the GC summary, renders the static
-  // GC-strip bands, and resets step tracking.
+  // setTimeline wires the per-run trace: builds the GC summary (for the cycle
+  // readout + STW banner detection) and resets step tracking. The to-scale GC
+  // bands themselves are drawn by the timeline canvas.
   setTimeline(tl: Timeline): void {
     this.timeline = tl
     this.midAlias = midAliases(tl.events) // caption M names match the carrier tags
@@ -193,7 +186,6 @@ export class Chrome {
     this.lastT = -1
     this.stwBannerMs = 0
     this.lastNowMs = 0
-    this.renderStrip()
   }
 
   layout(): void {
@@ -204,27 +196,6 @@ export class Chrome {
       const e = this.pills[key]
       e.style.left = `${p.x}px`
       e.style.top = `${p.y}px`
-    }
-  }
-
-  // renderStrip draws the to-scale GC bands once per run: a teal band per
-  // concurrent-mark phase and a red tick per real stop-the-world pause.
-  private renderStrip(): void {
-    const dur = this.timeline?.meta.durationNs ?? 0
-    // clear previous bands (keep the playhead child)
-    for (const c of [...this.stripTrack.children]) if (c !== this.stripHead) c.remove()
-    if (dur <= 0) return
-    const pctOf = (ns: number): number => Math.max(0, Math.min(100, (ns / dur) * 100))
-    for (const m of this.gc.mark) {
-      const band = el('div', 'gc-band mark')
-      band.style.left = `${pctOf(m.startNs)}%`
-      band.style.width = `${Math.max(0.4, pctOf(m.endNs) - pctOf(m.startNs))}%`
-      this.stripTrack.append(band)
-    }
-    for (const s of this.gc.stw) {
-      const tick = el('div', 'gc-band stw')
-      tick.style.left = `${pctOf(s.startNs)}%`
-      this.stripTrack.append(tick)
     }
   }
 
@@ -256,9 +227,7 @@ export class Chrome {
       this.gcReadout.textContent = readout
     }
 
-    // GC-strip playhead.
     const dur = this.timeline?.meta.durationNs ?? 0
-    if (dur > 0) this.stripHead.style.left = `${Math.max(0, Math.min(100, (world.t / dur) * 100))}%`
 
     // detect a stop-the-world crossed in this playback step → flash the banner with
     // its REAL duration (the scene flashes the vignette from the same data). The

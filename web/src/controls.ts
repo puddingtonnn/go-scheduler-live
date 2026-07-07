@@ -88,8 +88,12 @@ export class Controls {
       speeds.append(b)
     }
 
+    // The visible scrubber is now the unified timeline canvas (ui/timeline.ts); the
+    // native range stays in the DOM, visually hidden, as the keyboard seek control
+    // (and the seek path the control-verify harness drives).
     this.scrub = document.createElement('input')
     this.scrub.type = 'range'
+    this.scrub.className = 'sr-only'
     this.scrub.min = '0'
     this.scrub.max = '1000'
     this.scrub.value = '0'

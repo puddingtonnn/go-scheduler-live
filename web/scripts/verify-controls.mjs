@@ -112,8 +112,15 @@ ok('intro card reappears for the new scenario', await page.locator('.intro').isV
 await page.locator('.intro button', { hasText: 'Понятно' }).click().catch(() => {})
 const gcReadout = await page.locator('.gc-readout').textContent()
 ok('GC readout shows real cycles', /цикл/.test(gcReadout), gcReadout)
-const stripTicks = await page.locator('.gc-band.stw').count()
-ok('GC strip has real STW ticks', stripTicks > 0, `${stripTicks} ticks`)
+// the DOM GC-strip was replaced by the unified timeline canvas; assert STW from the
+// real trace data + that the timeline canvas is present.
+const stwCount = await page.evaluate(() =>
+  globalThis.gmp.timeline.events.filter(
+    (e) => e.type === 'gc_range_begin' && /stop-the-world/.test(e.name || '') && !/start trace/.test(e.name || ''),
+  ).length,
+)
+ok('trace surfaces real STW ranges', stwCount > 0, `${stwCount} STW`)
+ok('unified timeline canvas present', (await page.locator('.timeline canvas').count()) === 1)
 
 // 9. GOMAXPROCS change + run
 await page.evaluate(() => {

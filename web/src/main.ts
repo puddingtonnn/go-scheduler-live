@@ -6,6 +6,7 @@ import { Chrome } from './ui/chrome'
 import { Controls } from './controls'
 import { parseShare, buildShare } from './share'
 import { EventLog } from './ui/eventlog'
+import { TimelineBar } from './ui/timeline'
 import { midAliases } from './scene/layout'
 import { t, getLang, scenarioTitle, scenarioDesc } from './i18n'
 
@@ -47,7 +48,14 @@ async function boot(): Promise<void> {
   let timeline: Timeline | null = null
 
   const eventLog = new EventLog()
-  root.append(chrome.header, stage, eventLog.root, chrome.legend)
+  // The unified timeline sits in the control panel, just above the transport row.
+  const timelineBar = new TimelineBar()
+  timelineBar.onSeek = (ns) => {
+    player?.pause()
+    player?.seek(ns)
+    controls.sync()
+  }
+  root.append(chrome.header, stage, eventLog.root, chrome.legend, timelineBar.root)
   const controls = new Controls(
     root,
     scenarios,
@@ -113,6 +121,7 @@ async function boot(): Promise<void> {
       scene.loadTimeline(tl)
       chrome.setProcs(tl.meta.numProcs)
       chrome.setTimeline(tl)
+      timelineBar.setTimeline(tl)
       eventLog.build(tl.events, midAliases(tl.events))
       chrome.setScenario(scenarioInfo(params.scenario))
       intro.show(scenarioInfo(params.scenario))
@@ -122,6 +131,7 @@ async function boot(): Promise<void> {
       p.onTick = (w) => {
         sc.setWorld(w)
         chrome.update(w)
+        timelineBar.render(w.t)
         eventLog.setT(w.t)
         controls.sync()
         // Paused emits are discrete (seek/step/pause) — safe to mirror into the

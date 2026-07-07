@@ -31,6 +31,39 @@ export function stealBurst(events: TimelineEvent[], t: number, windowNs: number)
   return best
 }
 
+export interface StealMark {
+  /** time of the first stolen run-start in the burst (ns). */
+  tNs: number
+  pid: number
+  /** number of stolen run-starts folded into this burst mark. */
+  count: number
+}
+
+// stealMarks collapses runs of stolen g_run_start events into representative burst
+// marks for the timeline (one diamond per burst): consecutive stolen starts on the
+// same destination P, each within `windowNs` of the previous one, fold into a single
+// mark whose count is the burst size and whose tNs is the first start. This mirrors
+// the runtime's single runqsteal (~half a queue) that our per-goroutine `stolen`
+// flag scatters across several starts. Events must be time-ordered (they are). Pure.
+export function stealMarks(events: TimelineEvent[], windowNs: number): StealMark[] {
+  const marks: StealMark[] = []
+  const openIdx = new Map<number, number>() // pid -> index of its open burst in marks
+  const lastT = new Map<number, number>() // pid -> time of its last stolen start
+  for (const e of events) {
+    if (e.type !== 'g_run_start' || !e.stolen || e.pid < 0) continue
+    const idx = openIdx.get(e.pid)
+    const prev = lastT.get(e.pid)
+    if (idx !== undefined && prev !== undefined && e.t - prev <= windowNs) {
+      marks[idx].count++
+    } else {
+      openIdx.set(e.pid, marks.length)
+      marks.push({ tNs: e.t, pid: e.pid, count: 1 })
+    }
+    lastT.set(e.pid, e.t)
+  }
+  return marks
+}
+
 // pluralGor returns the Russian plural form of "горутина" for n (accusative).
 export function pluralGor(n: number): string {
   const d = n % 10
