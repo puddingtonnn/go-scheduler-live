@@ -134,6 +134,14 @@ const RU = {
           'Сценарии нарочно замедлены CPU-работой, чтобы поток событий был обозримым, — продовый код так не пишут.',
         ],
       ],
+      [
+        'Декоративные элементы — визуальная сцена, не данные',
+        [
+          'Неоновая вывеска, ворота main()/выхода, постеры, конвейерные ленты, койки, телефонные будки, будки-станции (стекло/крыша/вентилятор), робот-уборщик и сирена — это «цех», антураж.',
+          'Реальны данные, которые они показывают: занятость P (будка занята), счётчик глобальной очереди на табло, размер кучи (плитки), фаза конкурентной разметки (робот метёт, куча пульсирует), паузы STW (сирена + виньетка).',
+          'Ходьба гоферов между зонами (по флагу ?walk) — анимация реального перехода состояния: её длительность косметическая, сам переход взят из трейса.',
+        ],
+      ],
     ] as ReadonlyArray<readonly [string, readonly string[]]>,
     real: 'Настоящее — всё остальное, напрямую из runtime/trace: события и их время, состояния горутин, привязки P и M, циклы GC и длительности STW, метрики кучи, причины блокировок.',
   },
@@ -341,6 +349,14 @@ const EN: Strings = {
         [
           'The heap curve is downsampled: points at most once per 2 ms.',
           'Scenarios are deliberately paced with CPU work to keep the event stream readable — production code is not written like this.',
+        ],
+      ],
+      [
+        'Decorative elements — visual staging, not data',
+        [
+          'The neon sign, main()/exit gates, posters, conveyor belts, bunks, phone stalls, booth stations (glass/roof/fan), the cleaning robot and the siren are "factory" set dressing.',
+          'What they reflect IS real: P occupancy (a busy booth), the global-queue count on the departure board, the heap size (the tiles), the concurrent-mark phase (the robot sweeps, the heap pulses), STW pauses (siren + vignette).',
+          'Gopher walking between zones (behind the ?walk flag) animates a real state transition: the walk duration is cosmetic, the transition itself comes from the trace.',
         ],
       ],
     ] as ReadonlyArray<readonly [string, readonly string[]]>,
