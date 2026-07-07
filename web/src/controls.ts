@@ -17,7 +17,9 @@ export class Controls {
   private readonly time: HTMLSpanElement
   private readonly speedBtns: HTMLButtonElement[] = []
   private readonly scenarioSel: HTMLSelectElement
+  private readonly scenarioChips: HTMLButtonElement[] = []
   private readonly procsInput: HTMLInputElement
+  private readonly procsVal: HTMLSpanElement
   private readonly goroutinesInput: HTMLInputElement
   private readonly runBtn: HTMLButtonElement
 
@@ -103,7 +105,12 @@ export class Controls {
     this.time.className = 'time'
     this.time.textContent = `0.00 / 0.00 ${S.controls.ms}`
 
+    // The native <select> stays in the DOM (keyboard-operable, and the control
+    // harness drives it programmatically) but is visually hidden; the scenario
+    // CHIPS below are the visible affordance and drive it.
     this.scenarioSel = document.createElement('select')
+    this.scenarioSel.className = 'sr-only'
+    this.scenarioSel.setAttribute('aria-label', S.controls.scenario)
     for (const sc of this.scenarios) {
       const opt = document.createElement('option')
       opt.value = sc.id
@@ -112,6 +119,7 @@ export class Controls {
     }
     this.scenarioSel.addEventListener('change', () => {
       this.applyScenarioParams()
+      this.syncScenarioChips()
       const info = this.scenarios.find((s) => s.id === this.scenarioSel.value)
       if (info) this.onScenarioChange?.(info)
       // Picking a scenario runs it immediately: otherwise the world keeps playing
@@ -120,12 +128,58 @@ export class Controls {
       this.triggerRun()
     })
 
+    // Scenario chips: one click, all scenarios visible. A chip sets the hidden
+    // <select> + dispatches change, so the single auto-run path above stays the
+    // source of truth.
+    const scenChips = document.createElement('div')
+    scenChips.className = 'scenario-chips'
+    scenChips.setAttribute('role', 'group')
+    scenChips.setAttribute('aria-label', S.controls.scenario)
+    const scenCap = document.createElement('span')
+    scenCap.className = 'chips-cap'
+    scenCap.textContent = S.controls.scenarioCap
+    scenChips.append(scenCap)
+    for (const sc of this.scenarios) {
+      const chip = button(scenarioTitle(sc), () => {
+        this.scenarioSel.value = sc.id
+        this.scenarioSel.dispatchEvent(new Event('change'))
+      })
+      chip.className = 'chip'
+      chip.dataset.id = sc.id
+      this.scenarioChips.push(chip)
+      scenChips.append(chip)
+    }
+
+    // GOMAXPROCS: a ± stepper over a visually-hidden native number input (kept as
+    // the FIRST .controls input[type=number] the harness reads).
     this.procsInput = numberInput(1, 8, 4)
+    this.procsInput.className = 'sr-only'
+    this.procsInput.setAttribute('aria-label', 'GOMAXPROCS')
     this.procsInput.title = S.controls.procsTip
     this.goroutinesInput = numberInput(1, 200, 50)
     this.goroutinesInput.title = S.controls.gorTip
-    this.procsInput.addEventListener('input', () => this.markDirty())
+    this.procsInput.addEventListener('input', () => {
+      this.syncProcsVal()
+      this.markDirty()
+    })
     this.goroutinesInput.addEventListener('input', () => this.markDirty())
+
+    this.procsVal = document.createElement('span')
+    this.procsVal.className = 'step-val'
+    this.procsVal.textContent = this.procsInput.value
+    const procsCap = document.createElement('span')
+    procsCap.className = 'step-cap'
+    procsCap.textContent = 'GOMAXPROCS'
+    const procsDec = button('−', () => this.stepProcs(-1))
+    procsDec.className = 'step-btn'
+    procsDec.setAttribute('aria-label', 'GOMAXPROCS −')
+    const procsInc = button('+', () => this.stepProcs(1))
+    procsInc.className = 'step-btn'
+    procsInc.setAttribute('aria-label', 'GOMAXPROCS +')
+    const stepper = document.createElement('div')
+    stepper.className = 'stepper'
+    stepper.append(procsCap, procsDec, this.procsVal, procsInc)
+
     this.runBtn = button(S.controls.run, () => this.triggerRun())
     this.runBtn.className = 'run'
     this.runBtn.setAttribute('aria-label', S.controls.ariaRun)
@@ -140,12 +194,15 @@ export class Controls {
       mBtn,
       logBtn,
       sep(),
-      labeled(S.controls.scenario, this.scenarioSel),
-      labeled('GOMAXPROCS', this.procsInput),
+      scenChips,
+      this.scenarioSel,
+      stepper,
+      this.procsInput,
       labeled(S.controls.goroutines, this.goroutinesInput),
       this.runBtn,
     )
     container.append(bar)
+    this.syncScenarioChips()
     this.applyScenarioParams()
   }
 
@@ -156,10 +213,14 @@ export class Controls {
     if (p.scenario && this.scenarios.some((s) => s.id === p.scenario)) {
       this.scenarioSel.value = p.scenario
       this.applyScenarioParams()
+      this.syncScenarioChips()
       const info = this.scenarios.find((s) => s.id === p.scenario)
       if (info) this.onScenarioChange?.(info)
     }
-    if (p.gomaxprocs !== undefined) this.procsInput.value = String(p.gomaxprocs)
+    if (p.gomaxprocs !== undefined) {
+      this.procsInput.value = String(p.gomaxprocs)
+      this.syncProcsVal()
+    }
     if (p.goroutines !== undefined) this.goroutinesInput.value = String(p.goroutines)
   }
 
@@ -212,6 +273,22 @@ export class Controls {
 
   private setSpeedActive(s: number): void {
     this.speedBtns.forEach((b, i) => b.classList.toggle('active', SPEEDS[i] === s))
+  }
+
+  private syncScenarioChips(): void {
+    for (const c of this.scenarioChips) c.classList.toggle('active', c.dataset.id === this.scenarioSel.value)
+  }
+
+  private syncProcsVal(): void {
+    this.procsVal.textContent = this.procsInput.value
+  }
+
+  // stepProcs nudges GOMAXPROCS through the hidden native input, dispatching input
+  // so the value display + dirty state update via the same path the harness uses.
+  private stepProcs(delta: number): void {
+    const next = Math.min(8, Math.max(1, clampNum(this.procsInput, 1, 8) + delta))
+    this.procsInput.value = String(next)
+    this.procsInput.dispatchEvent(new Event('input', { bubbles: true }))
   }
 
   private applyScenarioParams(): void {

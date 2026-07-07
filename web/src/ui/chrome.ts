@@ -130,6 +130,7 @@ export class Chrome {
       item.append(dot, document.createTextNode(name))
       this.legend.append(item)
     }
+    this.legend.append(el('span', 'leg-hint', S.legendHint))
     this.legend.append(buildAssumptions())
 
     // --- zone pills ---

@@ -75,6 +75,8 @@ const RU = {
     ['Завершён', 'Горутина отработала и исчезает'],
   ] as ReadonlyArray<readonly [string, string]>,
 
+  legendHint: 'колесо — зум · перетаскивание — панорама · двойной клик — сбросить вид',
+
   pills: {
     pstation: ['P-станции · выполнение', 'Слоты выполнения (=GOMAXPROCS); на каждом не больше одной бегущей горутины'],
     local: ['локальные очереди', 'Горутины, приписанные к своему P — реконструкция (рантайм очереди не пишет)'],
@@ -135,6 +137,7 @@ const RU = {
     logLabel: 'лог',
     logTip: 'показать журнал событий',
     scenario: 'сценарий',
+    scenarioCap: 'СЦЕНАРИЙ',
     goroutines: 'горутины',
     procsTip: 'GOMAXPROCS — число P (слотов выполнения). Ограничено 1–8 под размер изо-сцены',
     gorTip: 'Сколько горутин запустить в сценарии (диапазон зависит от сценария)',
@@ -266,6 +269,8 @@ const EN: Strings = {
     ['Done', 'The goroutine finished and disappears'],
   ] as ReadonlyArray<readonly [string, string]>,
 
+  legendHint: 'wheel — zoom · drag — pan · double-click — reset view',
+
   pills: {
     pstation: ['P stations · running', 'Execution slots (=GOMAXPROCS); at most one running goroutine on each'],
     local: ['local queues', 'Goroutines assigned to their P — a reconstruction (the runtime does not record queues)'],
@@ -326,6 +331,7 @@ const EN: Strings = {
     logLabel: 'log',
     logTip: 'show the event log',
     scenario: 'scenario',
+    scenarioCap: 'SCENARIO',
     goroutines: 'goroutines',
     procsTip: 'GOMAXPROCS — the number of P (execution slots). Limited to 1–8 to fit the iso scene',
     gorTip: 'How many goroutines the scenario starts (the range depends on the scenario)',
