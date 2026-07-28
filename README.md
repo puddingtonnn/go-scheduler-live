@@ -1,12 +1,14 @@
-# gmp-model — Go Scheduler (G·M·P) & GC Visualizer
+# Go Scheduler Live — the Go runtime scheduler (G·M·P) and GC, visualized
 
 **English** · [Русский](README_RUS.md)
 
 [![Deploy static demo](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml)
 
+### ▶ [Open the live demo](https://puddingtonnn.github.io/go-scheduler-live/) — nothing to install
+
 An educational, pixel-art visualization of the **real** Go runtime scheduler: goroutines (G) as gophers, execution slots (P) as isometric stations, OS threads (M) as numbered carriers — plus the garbage collector, live heap, work stealing, blocking syscalls and stop-the-world pauses.
 
-![gmp-model screenshot](docs/screenshot.png)
+![Go Scheduler Live screenshot](docs/screenshot.png)
 
 ## The source of truth is the real runtime
 
@@ -32,9 +34,11 @@ Where the trace does not record something (local run-queue membership, steals, M
 | Work stealing | With `GOMAXPROCS>1`, idle Ps steal goroutines from busy ones |
 | Channels (ping-pong) | A ring of goroutines passes tokens; most wait on `chan receive` |
 | GC pressure | Fast allocation drives GC cycles: concurrent mark + stop-the-world |
-| Blocking syscalls | The M blocks in the kernel with its G; sysmon retakes the P for another M |
+| Blocking syscalls ¹ | The M blocks in the kernel with its G; sysmon retakes the P for another M |
 | Hot mutex | One `sync.Mutex` serializes N workers no matter how many Ps exist |
 | Goroutine leak | Goroutines block forever on a channel nobody writes to; Waiting only grows |
+
+¹ Unix only — it needs a genuinely blocking `syscall.Read` on a raw fd. On Windows five scenarios register instead of six.
 
 ## How it works
 
@@ -53,7 +57,9 @@ internal/tracerun  ──►  internal/traceparse  ──►  internal/timeline 
 
 - The trace is captured in a **separate subprocess** — the server's own goroutines never pollute it, and `GOMAXPROCS` is set per run.
 - Scenarios pace themselves with CPU work (`busyFor`), never `time.Sleep` — sleeping parks goroutines and empties the world; unpaced channel scenarios generate millions of events.
-- Pure logic (state folding, GC summary, layout, causality log, viewport math, i18n) is unit-tested; the visual layer is verified by Playwright harnesses, including a 26-point control contract.
+- Pure logic (state folding, GC summary, layout, causality log, viewport math, i18n) is unit-tested; the visual layer is verified by Playwright harnesses, including a 27-point control contract.
+
+For package boundaries, the `mid` binding rules, what is real versus reconstructed, and the traps that shaped the design, see **[docs/architecture.md](docs/architecture.md)**.
 
 ## Quick start
 
@@ -87,9 +93,26 @@ The same pipeline deploys to GitHub Pages on every push to `main` (`.github/work
 ```bash
 go test ./...                     # scheduler invariants incl. M bindings, scenario anti-regressions
 cd web && npx vitest run          # pure logic: state, GC, layout, causality, share codec, viewport, i18n
-node scripts/verify-controls.mjs  # Playwright: 26-point control contract (needs both servers running)
+node scripts/verify-controls.mjs  # Playwright: 27-point control contract (needs both servers running)
 ```
+
+> The backend compiles and runs the workload on demand (`go run`), so it needs the Go toolchain and this module's source at runtime. It is a local teaching tool — **do not expose the dev server publicly.**
 
 ## Honesty notes
 
 The in-app **Assumptions** panel is the authoritative list. In short: queue membership and steals are reconstructions (marked as such), time is slowed thousands of times, a P lane shows 6 goroutines instead of the real 256-slot queue, `runnext` is not drawn, GC sweep/mark-assist and the mark workers' ~25% CPU are omitted, parked M's are invisible because the trace has no M lifecycle. Everything else is real trace data.
+
+## How this was built
+
+Developed in pair with [Claude Code](https://claude.com/claude-code). Every claim this project makes about the runtime is held to a trace and a test: `go test ./...` asserts scheduler invariants against the raw trace on every scenario, and anything that could not be derived from trace facts is listed in the Assumptions panel rather than quietly drawn.
+
+## Credits
+
+- The Go gopher was designed by [Renée French](https://reneefrench.blogspot.com/) and is licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The sprites here are an original pixel-art interpretation drawn procedurally in code; no official artwork is redistributed.
+- Fonts: [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/), both under the SIL Open Font License.
+- The isometric presentation and the zoom/pan feel are inspired by [floor796](https://floor796.com/).
+- Go and the Go gopher are trademarks of Google LLC. This project is independent and not affiliated with or endorsed by Google.
+
+## License
+
+[Apache License 2.0](LICENSE).
