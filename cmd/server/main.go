@@ -1,4 +1,4 @@
-// Command server runs the gmp-model HTTP backend: it serves the scenario list
+// Command server runs the go-scheduler-live HTTP backend: it serves the scenario list
 // and, on demand, runs a scenario under tracing and returns a Timeline.
 package main
 
@@ -7,8 +7,8 @@ import (
 	"log"
 	"net/http"
 
-	"gmp-model/internal/api"
-	"gmp-model/internal/tracerun"
+	"github.com/puddingtonnn/go-scheduler-live/internal/api"
+	"github.com/puddingtonnn/go-scheduler-live/internal/tracerun"
 )
 
 func main() {
@@ -17,7 +17,7 @@ func main() {
 
 	handler := api.New(tracerun.Run)
 
-	log.Printf("gmp-model server listening on %s", *addr)
+	log.Printf("go-scheduler-live server listening on %s", *addr)
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		log.Fatal(err)
 	}

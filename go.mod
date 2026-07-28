@@ -1,4 +1,4 @@
-module gmp-model
+module github.com/puddingtonnn/go-scheduler-live
 
 go 1.25.0
 

@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"gmp-model/internal/scenarios"
-	"gmp-model/internal/timeline"
-	"gmp-model/internal/traceparse"
-	"gmp-model/internal/tracerun"
+	"github.com/puddingtonnn/go-scheduler-live/internal/scenarios"
+	"github.com/puddingtonnn/go-scheduler-live/internal/timeline"
+	"github.com/puddingtonnn/go-scheduler-live/internal/traceparse"
+	"github.com/puddingtonnn/go-scheduler-live/internal/tracerun"
 )
 
 // TraceRunner runs a workload and returns the raw execution-trace bytes.

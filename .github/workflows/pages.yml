@@ -35,7 +35,7 @@ jobs:
         working-directory: web
         env:
           VITE_STATIC: '1'
-          VITE_BASE: /gmp-model/
+          VITE_BASE: /go-scheduler-live/
         run: |
           npm ci
           npm run build

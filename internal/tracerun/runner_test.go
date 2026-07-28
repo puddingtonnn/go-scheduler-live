@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"gmp-model/internal/timeline"
-	"gmp-model/internal/traceparse"
+	"github.com/puddingtonnn/go-scheduler-live/internal/timeline"
+	"github.com/puddingtonnn/go-scheduler-live/internal/traceparse"
 )
 
 // TestRunProducesParsableTrace runs the full pipeline: subprocess workload ->

@@ -2,7 +2,7 @@
 
 **English** · [Русский](README_RUS.md)
 
-[![Deploy static demo](https://github.com/puddingtonnn/gmp-model/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/gmp-model/actions/workflows/pages.yml)
+[![Deploy static demo](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml)
 
 An educational, pixel-art visualization of the **real** Go runtime scheduler: goroutines (G) as gophers, execution slots (P) as isometric stations, OS threads (M) as numbered carriers — plus the garbage collector, live heap, work stealing, blocking syscalls and stop-the-world pauses.
 

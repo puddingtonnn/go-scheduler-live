@@ -15,7 +15,7 @@ import (
 	"runtime/trace"
 	"time"
 
-	"gmp-model/internal/scenarios"
+	"github.com/puddingtonnn/go-scheduler-live/internal/scenarios"
 )
 
 func main() {

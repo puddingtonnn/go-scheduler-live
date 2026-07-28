@@ -2,7 +2,7 @@
 
 [English](README.md) · **Русский**
 
-[![Deploy static demo](https://github.com/puddingtonnn/gmp-model/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/gmp-model/actions/workflows/pages.yml)
+[![Deploy static demo](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml)
 
 Учебная пиксель-арт визуализация **настоящего** планировщика Go: горутины (G) — гоферы, слоты выполнения (P) — изометрические станции, OS-потоки (M) — тележки с номерами. Плюс сборщик мусора, живая куча, кража работы, блокирующие сисколлы и stop-the-world паузы.
 

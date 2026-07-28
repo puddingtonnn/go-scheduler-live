@@ -9,7 +9,7 @@ import { defineConfig } from 'vite'
 //   GMP_API_TARGET=http://localhost:8085 npm run dev
 const apiTarget = process.env.GMP_API_TARGET ?? 'http://localhost:8080'
 
-// VITE_BASE lets the GitHub Pages build serve from /gmp-model/ (see
+// VITE_BASE lets the GitHub Pages build serve from /go-scheduler-live/ (see
 // .github/workflows/pages.yml); local builds keep the root base.
 export default defineConfig({
   base: process.env.VITE_BASE ?? '/',

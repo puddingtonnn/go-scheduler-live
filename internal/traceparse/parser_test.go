@@ -6,7 +6,7 @@ import (
 
 	exptrace "golang.org/x/exp/trace"
 
-	"gmp-model/internal/timeline"
+	"github.com/puddingtonnn/go-scheduler-live/internal/timeline"
 )
 
 // TestParseGolden parses a committed real trace and checks invariants rather
