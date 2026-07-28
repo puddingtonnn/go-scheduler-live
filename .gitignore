@@ -34,6 +34,13 @@ go.work.sum
 # OS / local junk
 .DS_Store
 /node_modules/
-/server
 *.zip
+
+# Compiled command binaries left in the repo root by `go build ./cmd/...`
+/server
+/bake
+/workload
+
+# Design-tool exports (the handoff itself lives outside the repo)
 design_handoff*/
+*.dc.html
