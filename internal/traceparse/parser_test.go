@@ -16,7 +16,7 @@ func TestParseGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	events, err := Parse(f)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestParseAndBuildReal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	events, err := Parse(f)
 	if err != nil {

@@ -60,11 +60,10 @@ func bake(out string, duration time.Duration) error {
 				def = p.Default
 			}
 		}
-		procs := []int{4}
-		if info.ID == "workstealing" {
-			// The scheduler lesson scenario gets the GOMAXPROCS contrast pair.
-			procs = []int{1, 4, 8}
-		}
+		// Every scenario gets the full GOMAXPROCS spread: in the static demo the
+		// stepper cannot record a fresh trace, so a parameter with nothing baked
+		// behind it silently returns the same run and reads as a broken control.
+		procs := []int{1, 4, 8}
 		for _, np := range procs {
 			run, err := bakeOne(ctx, out, info.ID, np, def, duration)
 			if err != nil {
@@ -106,7 +105,7 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := json.NewEncoder(f).Encode(v); err != nil {
 		return fmt.Errorf("encoding %s: %w", path, err)
 	}

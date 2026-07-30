@@ -31,7 +31,7 @@ func (gcPressure) Describe() ScenarioInfo {
 
 // sinkGC keeps allocation work observable so the compiler cannot optimize it
 // away. Written only by Run's goroutine after the workers finish — no race.
-var sinkGC int
+var sinkGC int //nolint:unused // deliberate write-only sink; see the comment above
 
 func (gcPressure) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 1)

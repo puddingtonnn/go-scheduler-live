@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"
+
+  # x/exp/trace has to keep up with the Go trace format version, so a stale
+  # frontend lockfile is a nuisance but a stale x/exp is a hard breakage.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"

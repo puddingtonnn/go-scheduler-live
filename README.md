@@ -2,6 +2,7 @@
 
 **English** · [Русский](README_RUS.md)
 
+[![ci](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/ci.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/ci.yml)
 [![Deploy static demo](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml)
 
 ### ▶ [Open the live demo](https://puddingtonnn.github.io/go-scheduler-live/) — nothing to install
@@ -25,7 +26,7 @@ Where the trace does not record something (local run-queue membership, steals, M
 - **floor796-style zoom & pan** — wheel to zoom up to 6×, goroutine id tags re-rasterize and stay crisp.
 - **RU/EN interface** — a header toggle switches the whole UI, including captions and the event log.
 - **Shareable URLs** — scenario, parameters and the paused playhead moment encode into the address bar.
-- **Static demo mode** — a baked matrix of traces deploys to GitHub Pages with no backend at all.
+- **Static demo mode** — a baked matrix of traces deploys to GitHub Pages with no backend at all. The hosted demo has no Go behind it, so its controls select the nearest pre-baked run (GOMAXPROCS 1/4/8 per scenario) instead of recording a new trace; the page says so, and running locally records for real.
 
 ## Scenarios
 

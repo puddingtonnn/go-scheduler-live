@@ -8,6 +8,7 @@ import { narrate, captionWindowNs } from '../player/narrate'
 import { gcSummary, stwInWindow, isPlaybackStep, STW_FLASH_MS, type GcSummary } from '../player/gc'
 import { gcPhase, heapPct, waitingBreakdown } from './derive'
 import { t as tr, getLang, setLang, scenarioDesc } from '../i18n'
+import { isStaticDemo } from '../api'
 
 // Chrome is the DOM layer over the pixel canvas: header (title + scenario subtitle
 // + GC indicator + heap bar + GC-cycle readout), a to-scale GC strip that shows
@@ -329,7 +330,11 @@ function buildAssumptions(): HTMLDetailsElement {
   sum.textContent = A.summary
   box.append(sum)
   const body = el('div', 'assume-body')
-  for (const [gtitle, items] of A.groups) {
+  const groups = [...A.groups]
+  // The static build has no backend, which changes what the controls can mean.
+  // That belongs in the honesty panel rather than only in a tooltip.
+  if (isStaticDemo()) groups.unshift([tr().demo.group, tr().demo.items])
+  for (const [gtitle, items] of groups) {
     const g = el('div', 'assume-group')
     g.append(el('b', undefined, gtitle))
     const ul = document.createElement('ul')

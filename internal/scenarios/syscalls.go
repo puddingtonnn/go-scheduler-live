@@ -54,7 +54,7 @@ func (sysCalls) Describe() ScenarioInfo {
 
 // scSink keeps the workers' CPU work observable. Written only after the
 // goroutines join (in Run), so no race.
-var scSink uint64
+var scSink uint64 //nolint:unused // deliberate write-only sink; see the comment above
 
 func (sysCalls) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 2)
@@ -65,8 +65,8 @@ func (sysCalls) Run(ctx context.Context, p Params) error {
 		var fds [2]int
 		if err := syscall.Pipe(fds[:]); err != nil {
 			for j := range i {
-				syscall.Close(readFDs[j])
-				syscall.Close(writeFDs[j])
+				_ = syscall.Close(readFDs[j])
+				_ = syscall.Close(writeFDs[j])
 			}
 			return err
 		}
@@ -116,7 +116,7 @@ func (sysCalls) Run(ctx context.Context, p Params) error {
 	wg.Go(func() {
 		defer func() {
 			for _, fd := range writeFDs {
-				syscall.Close(fd)
+				_ = syscall.Close(fd)
 			}
 		}()
 		var acc uint64
@@ -141,7 +141,7 @@ func (sysCalls) Run(ctx context.Context, p Params) error {
 	// Only now is it safe to close the read ends: no goroutine reads them
 	// anymore (closing an fd another thread is blocked on is undefined).
 	for _, fd := range readFDs {
-		syscall.Close(fd)
+		_ = syscall.Close(fd)
 	}
 	for _, v := range results {
 		scSink += v

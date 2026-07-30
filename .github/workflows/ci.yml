@@ -1,0 +1,106 @@
+# Quality gate for every push and pull request. The three jobs mirror the three
+# layers of the project: the Go pipeline, the frontend's pure logic, and the
+# interactive control contract that only a real browser can check.
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go — vet, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      # Scenario tests record real traces in subprocesses, so this is the slow
+      # job — and the one that actually asserts scheduler invariants.
+      - run: go test ./...
+
+      - name: Cross-compile
+        run: |
+          GOOS=windows go build ./...
+          GOOS=darwin go build ./...
+
+  web:
+    name: Web — typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npx vite build
+
+  controls:
+    name: Controls — Playwright contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # The contract drives the live app, so it needs both halves running: the
+      # backend records a fresh trace per scenario switch, exactly as it does on
+      # a developer's machine. Servers start and the contract runs in one step —
+      # background processes are not guaranteed to survive a step boundary.
+      - name: Verify control contract
+        run: |
+          go run ./cmd/server -addr :8085 &
+          (cd web && GMP_API_TARGET=http://localhost:8085 npx vite --port 5173 --strictPort &)
+          curl -s --retry 60 --retry-delay 1 --retry-all-errors -o /dev/null http://localhost:8085/api/scenarios
+          curl -s --retry 60 --retry-delay 1 --retry-all-errors -o /dev/null http://localhost:5173/
+          cd web && node scripts/verify-controls.mjs
+        env:
+          SHOOT_URL: http://localhost:5173
+          SHOOT_OUT: ${{ runner.temp }}
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-failure-shots
+          path: ${{ runner.temp }}/*.png
+          if-no-files-found: ignore

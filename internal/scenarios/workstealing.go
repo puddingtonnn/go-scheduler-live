@@ -32,7 +32,7 @@ func (workStealing) Describe() ScenarioInfo {
 // sink keeps the compiler from eliminating the busy-loop below as dead code. It
 // is written only by Run's own goroutine after the workers finish, so there is
 // no data race on it.
-var sink uint64
+var sink uint64 //nolint:unused // deliberate write-only sink; see the comment above
 
 func (workStealing) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 1)

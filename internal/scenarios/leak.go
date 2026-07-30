@@ -49,7 +49,7 @@ func (leak) Describe() ScenarioInfo {
 
 // lkSink keeps the workers' CPU work observable. Written only after the
 // tracked goroutines join (in Run), so no race.
-var lkSink uint64
+var lkSink uint64 //nolint:unused // deliberate write-only sink; see the comment above
 
 func (leak) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 4)

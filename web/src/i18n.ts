@@ -193,6 +193,18 @@ const RU = {
     noBaked: (scenario: string) => `в демо нет запечённого прогона для «${scenario}»`,
   },
 
+  demo: {
+    hint: 'демо-режим: без бэкенда',
+    tip: 'На этой странице нет Go-бэкенда: показываются трейсы, записанные заранее в CI. Параметры выбирают ближайший запечённый прогон, а не пишут новый. Локальный запуск пишет свежий трейс на каждый «Запустить».',
+    group: 'Демо-режим — эта страница без бэкенда',
+    items: [
+      'Трейсы записаны заранее в CI командой `cmd/bake` — настоящим конвейером, но не в момент вашего клика.',
+      'GOMAXPROCS выбирает ближайший запечённый прогон (испечены 1, 4 и 8 для каждого сценария).',
+      'Число горутин на прогон здесь не влияет: испечено значение по умолчанию для каждого сценария.',
+      'Чтобы записывать трейс своими параметрами, запустите проект локально — см. README.',
+    ],
+  },
+
   narrate: {
     stw: 'Stop-the-world: все горутины замерли',
     mark: 'GC: фаза разметки (concurrent mark)',
@@ -408,6 +420,18 @@ const EN: Strings = {
     demoIndex: (status: number) => `demo index: HTTP ${status}`,
     demoRun: (status: number) => `demo run: HTTP ${status}`,
     noBaked: (scenario: string) => `the demo has no baked run for “${scenario}”`,
+  },
+
+  demo: {
+    hint: 'demo mode: no backend',
+    tip: 'This page has no Go backend: it replays traces recorded ahead of time in CI. Parameters select the nearest pre-baked run rather than recording a new one. Running the project locally records a fresh trace on every Run.',
+    group: 'Demo mode — this page has no backend',
+    items: [
+      'Traces were recorded ahead of time in CI by `cmd/bake` — the real pipeline, just not at the moment you clicked.',
+      'GOMAXPROCS selects the nearest baked run (1, 4 and 8 are baked for every scenario).',
+      'The goroutine count has no effect here: each scenario is baked at its default.',
+      'To record a trace with your own parameters, run the project locally — see the README.',
+    ],
   },
 
   narrate: {

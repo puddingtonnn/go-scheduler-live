@@ -343,6 +343,24 @@
           display: none;
         }
       }
+      /* static-demo marker in the control bar: same amber register as the
+         assumptions line, because it is the same kind of statement — this build
+         replays traces baked in CI, so the params select rather than record */
+      .demo-badge {
+        align-self: center;
+        font-family: var(--mn);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--runnable);
+        border: 1px solid var(--runnable);
+        border-radius: 3px;
+        padding: 3px 7px;
+        opacity: 0.75;
+        cursor: help;
+        white-space: nowrap;
+      }
+
       /* honesty disclosure: summary line always visible, expands to the full
          assumptions list (built in chrome.ts buildAssumptions) */
       .assumptions {

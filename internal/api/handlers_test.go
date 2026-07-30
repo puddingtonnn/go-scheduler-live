@@ -42,7 +42,7 @@ func TestScenariosEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -79,7 +79,7 @@ func TestRunEndpointAndCache(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&tl); err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if tl.Meta.Scenario != "workstealing" {
 			t.Errorf("scenario = %q, want workstealing", tl.Meta.Scenario)
@@ -105,7 +105,7 @@ func TestRunEndpointUnknownScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}

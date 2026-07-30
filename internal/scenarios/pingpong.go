@@ -38,7 +38,7 @@ func (pingPong) Describe() ScenarioInfo {
 
 // ppSink keeps the token-holders' CPU work observable. Written only after the
 // goroutines join (in Run), so no race.
-var ppSink uint64
+var ppSink uint64 //nolint:unused // deliberate write-only sink; see the comment above
 
 func (pingPong) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 2)

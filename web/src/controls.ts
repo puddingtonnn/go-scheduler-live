@@ -1,6 +1,7 @@
 import type { ScenarioInfo } from './model/timeline'
 import type { RunParams } from './api'
 import type { Player } from './player/player'
+import { isStaticDemo } from './api'
 import { t, scenarioTitle } from './i18n'
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4]
@@ -205,6 +206,9 @@ export class Controls {
       labeled(S.controls.goroutines, this.goroutinesInput),
       this.runBtn,
     )
+    // In the static demo the params pick the nearest baked run rather than
+    // recording one, so say so next to the button that appears to record.
+    if (isStaticDemo()) bar.append(demoBadge(S.demo.hint, S.demo.tip))
     container.append(bar)
     this.syncScenarioChips()
     this.applyScenarioParams()
@@ -336,6 +340,16 @@ function labeled(text: string, el: HTMLElement): HTMLLabelElement {
   span.textContent = text
   wrap.append(span, el)
   return wrap
+}
+
+// demoBadge is the always-visible marker that this build has no backend behind
+// it. Same amber register as the assumptions line: a disclosure, not a warning.
+function demoBadge(label: string, tip: string): HTMLSpanElement {
+  const b = document.createElement('span')
+  b.className = 'demo-badge'
+  b.textContent = label
+  b.title = tip
+  return b
 }
 
 function sep(): HTMLElement {

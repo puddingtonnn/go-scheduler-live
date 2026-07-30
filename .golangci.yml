@@ -1,0 +1,12 @@
+# Linter gate for CI. The default set (errcheck, govet, ineffassign, staticcheck,
+# unused) is kept as-is and the code is clean against it: ignored errors are
+# written as an explicit `_ =` so the intent is visible at the call site, and the
+# scenarios' write-only sinks carry a //nolint:unused with the reason.
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    staticcheck:
+      checks:
+        - all

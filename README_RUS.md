@@ -2,6 +2,7 @@
 
 [English](README.md) · **Русский**
 
+[![ci](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/ci.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/ci.yml)
 [![Deploy static demo](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml/badge.svg)](https://github.com/puddingtonnn/go-scheduler-live/actions/workflows/pages.yml)
 
 ### ▶ [Открыть живое демо](https://puddingtonnn.github.io/go-scheduler-live/) — ничего ставить не нужно
@@ -25,7 +26,7 @@
 - **Зум и пан как на floor796** — колесо приближает до 6×, бирки id перерастеризуются и остаются чёткими.
 - **Интерфейс RU/EN** — переключатель в шапке меняет весь UI, включая подписи и журнал.
 - **Шарящиеся URL** — сценарий, параметры и момент паузы кодируются в адресную строку.
-- **Статик-режим** — запечённая матрица трейсов деплоится на GitHub Pages вообще без бэкенда.
+- **Статик-режим** — запечённая матрица трейсов деплоится на GitHub Pages вообще без бэкенда. У размещённого демо нет Go под капотом, поэтому его контролы выбирают ближайший запечённый прогон (GOMAXPROCS 1/4/8 на каждый сценарий), а не пишут новый трейс; страница об этом честно говорит, а локальный запуск пишет по-настоящему.
 
 ## Сценарии
 

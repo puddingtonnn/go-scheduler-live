@@ -41,7 +41,7 @@ func (mutexHot) Describe() ScenarioInfo {
 
 // mhSink keeps the workers' CPU work observable. Written only after the
 // goroutines join (in Run), so no race.
-var mhSink uint64
+var mhSink uint64 //nolint:unused // deliberate write-only sink; see the comment above
 
 func (mutexHot) Run(ctx context.Context, p Params) error {
 	n := max(p.Goroutines, 2)

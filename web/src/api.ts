@@ -15,6 +15,13 @@ export interface RunParams {
 const STATIC = import.meta.env.VITE_STATIC === '1'
 const RUNS_BASE = `${import.meta.env.BASE_URL}runs/`
 
+// isStaticDemo lets the UI say out loud that parameters here select the nearest
+// pre-baked run instead of recording a new trace — otherwise a visitor changes
+// the goroutine count, sees the same world, and concludes the control is broken.
+export function isStaticDemo(): boolean {
+  return STATIC
+}
+
 interface BakedRun {
   scenario: string
   gomaxprocs: number
