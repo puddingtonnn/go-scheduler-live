@@ -1,0 +1,64 @@
+name: Fidelity report
+description: The world shows something the Go runtime does not actually do
+labels: ["fidelity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable report you can file. Being wrong about the
+        runtime is the one bug class this project cannot tolerate, so these get
+        priority over features.
+
+        Before filing: open the **Assumptions** panel under the legend. Things
+        listed there are known simplifications, deliberately disclosed — a
+        reconstruction marked `(reconstr.)` is working as intended. What we want
+        to hear about is anything presented as fact that is not.
+
+  - type: textarea
+    id: shown
+    attributes:
+      label: What the visualization shows
+      description: Which scenario, which moment, what you saw.
+      placeholder: |
+        Scenario "Blocking syscalls", around 12 ms: the carrier M3 stays docked
+        at P2 while its goroutine is in the syscall zone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What the runtime actually does
+      description: >
+        A citation beats an argument: Go source, runtime docs, a talk, or a
+        trace of your own.
+      placeholder: |
+        On a blocking syscall the M stays with its G; the P is handed off by
+        sysmon. See runtime/proc.go, entersyscallblock.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: >
+        A shareable URL from the demo (scenario, params and paused moment encode
+        into the address bar), a screenshot, or the relevant event-log lines.
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you see it
+      options:
+        - The hosted demo (traces baked in CI)
+        - Locally, with the backend recording live traces
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Go version and GOMAXPROCS (if running locally)
+      placeholder: go1.25.1, GOMAXPROCS=8

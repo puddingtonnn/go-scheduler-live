@@ -1,0 +1,51 @@
+name: Scenario proposal
+description: Suggest a concurrency workload worth visualizing
+labels: ["scenario"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A scenario is one file in `internal/scenarios/`, a `Register` call in
+        `init()`, and a test. See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md)
+        — you are very welcome to implement your own proposal.
+
+  - type: input
+    id: name
+    attributes:
+      label: Scenario name
+      placeholder: Worker pool with a bounded channel
+    validations:
+      required: true
+
+  - type: textarea
+    id: teaches
+    attributes:
+      label: What would someone learn from watching it?
+      description: >
+        The bar is that it teaches something the existing six do not. If it
+        looks the same on screen as work stealing, it is not a new scenario.
+    validations:
+      required: true
+
+  - type: textarea
+    id: visible
+    attributes:
+      label: What would be visibly different in the world?
+      description: >
+        Which zones fill up, what the P stations do, what the event log shows.
+      placeholder: |
+        Producers block on send once the buffer is full, so the Waiting zone
+        fills with chan-send blocks rather than chan-receive.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: traps
+    attributes:
+      label: Known traps
+      description: >
+        Both bite every new scenario. Tick what you have thought about — not
+        ticking them is fine, it just means there is more to work out.
+      options:
+        - label: Paced with CPU work (`busyFor`), not `time.Sleep` — sleeping parks goroutines and empties the world
+        - label: If it needs a real blocking syscall, it uses raw `syscall.Pipe`/`syscall.Read`, not `os.Pipe` (netpoller)

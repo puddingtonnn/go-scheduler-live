@@ -103,6 +103,38 @@ node scripts/verify-controls.mjs  # Playwright: 27-point control contract (needs
 
 The in-app **Assumptions** panel is the authoritative list. In short: queue membership and steals are reconstructions (marked as such), time is slowed thousands of times, a P lane shows 6 goroutines instead of the real 256-slot queue, `runnext` is not drawn, GC sweep/mark-assist and the mark workers' ~25% CPU are omitted, parked M's are invisible because the trace has no M lifecycle. Everything else is real trace data.
 
+## Contributing
+
+The architecture was cut so that three kinds of contribution are cheap to write
+and cheap to review:
+
+- **A scenario** — one file in `internal/scenarios/`, a `Register` call, a test.
+  The most self-contained way to add something that teaches.
+- **A language** — one dictionary in `web/src/i18n.ts`, with the compiler
+  checking your work: a missing string fails `tsc` rather than shipping blank.
+- **A fidelity report** — "the world shows X, the runtime does Y". No code
+  required, and the highest priority of anything here.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the details, including the two traps that
+bite every new scenario. Also: [Code of Conduct](CODE_OF_CONDUCT.md),
+[security policy](SECURITY.md) — read that one before hosting the backend
+anywhere.
+
+## Roadmap
+
+**Next** — more scenarios (context cancellation, a bounded worker pool, atomics
+versus a mutex); prebuilding the workload binary instead of `go run` per request;
+something that shows a blocking syscall on Windows, where the current scenario
+cannot run.
+
+**Maybe** — drawing heap overshoot, since the GC goal is soft and the real heap
+can exceed it; showing the ~25% CPU that background mark workers take; reworking
+the steal heuristic to cut its false positives; extracting the trace → Timeline
+pipeline as a library other tools could use.
+
+**Not planned** — a public instance that records live traces. See the
+[security policy](SECURITY.md) for why.
+
 ## How this was built
 
 Developed in pair with [Claude Code](https://claude.com/claude-code). Every claim this project makes about the runtime is held to a trace and a test: `go test ./...` asserts scheduler invariants against the raw trace on every scenario, and anything that could not be derived from trace facts is listed in the Assumptions panel rather than quietly drawn.

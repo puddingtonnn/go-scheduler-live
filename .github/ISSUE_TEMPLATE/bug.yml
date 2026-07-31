@@ -1,0 +1,67 @@
+name: Bug report
+description: Something is broken — a crash, a control that does nothing, a build failure
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the problem is that the world shows something the runtime does not do,
+        use the **Fidelity report** template instead — that is a different kind of
+        bug and it is triaged differently.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run the backend on :8085 and the frontend dev server
+        2. Pick "Hot mutex", set GOMAXPROCS to 8
+        3. Press Step twice
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - The hosted demo
+        - Locally, backend + frontend
+        - Building or testing the project
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: >
+        For local runs, `go version`, Node version and OS. On the demo, the
+        browser is enough.
+      placeholder: |
+        go1.25.1 darwin/arm64, node 22.11, macOS 15.2, Firefox 141
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console or terminal output
+      description: Browser console errors, or the backend's stderr.
+      render: shell
