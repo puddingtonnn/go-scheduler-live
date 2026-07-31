@@ -4,6 +4,11 @@ import { chromium } from 'playwright'
 
 const url = process.env.SHOOT_URL ?? 'http://localhost:5173'
 const outDir = process.env.SHOOT_OUT ?? '/tmp'
+// Every wait here is an upper bound sized for a warm dev machine, not an
+// assertion about speed. A CI runner is slower and recording a trace costs real
+// seconds, so let the environment stretch them instead of failing on hardware.
+const SCALE = Number(process.env.CONTRACT_TIMEOUT_SCALE ?? 1)
+const ms = (base) => Math.round(base * SCALE)
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const errors = []
@@ -14,7 +19,22 @@ const results = []
 const ok = (name, cond, detail = '') => { results.push({ name, pass: !!cond, detail }); }
 
 await page.goto(url, { waitUntil: 'networkidle' })
-await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: 20000 })
+// The first run has to travel the whole pipeline, so when it does not arrive the
+// useful question is "what did the app say", not "which line timed out".
+try {
+  await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: ms(20000) })
+} catch (e) {
+  const appError = await page.locator('.app-error').textContent().catch(() => null)
+  const fatal = await page.locator('.fatal').textContent().catch(() => null)
+  console.log('BOOT FAILED: no timeline within', ms(20000), 'ms')
+  console.log('  app error box:', appError?.trim() || '(empty)')
+  console.log('  fatal card:   ', fatal?.trim() || '(none)')
+  console.log('  page errors:  ', errors.length ? errors.join(' ; ') : 'none')
+  console.log('  gmp present:  ', await page.evaluate(() => Boolean(globalThis.gmp)))
+  await page.screenshot({ path: `${outDir}/boot-failure.png` }).catch(() => {})
+  await browser.close()
+  process.exit(1)
+}
 
 const playBtn = page.locator('.controls button').first() // play/pause toggle (label flips)
 const stepBtn = page.locator('.controls button', { hasText: 'Шаг' }).first()
@@ -106,7 +126,7 @@ await assume.click()
 await page.evaluate(() => {
   const sel = document.querySelector('.controls select'); sel.value = 'gcpressure'; sel.dispatchEvent(new Event('change'))
 })
-await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.scenario === 'gcpressure', { timeout: 20000 }).catch(() => {})
+await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.scenario === 'gcpressure', { timeout: ms(20000) }).catch(() => {})
 ok('scenario change runs automatically', (await state()).scenario === 'gcpressure')
 ok('intro card reappears for the new scenario', await page.locator('.intro').isVisible())
 await page.locator('.intro button', { hasText: 'Понятно' }).click().catch(() => {})
@@ -128,7 +148,7 @@ await page.evaluate(() => {
 })
 await page.locator('.controls button', { hasText: 'Запустить' }).click()
 await page.waitForTimeout(2500)
-await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.numProcs === 2, { timeout: 15000 }).catch(() => {})
+await page.waitForFunction(() => globalThis.gmp.timeline?.meta?.numProcs === 2, { timeout: ms(15000) }).catch(() => {})
 ok('GOMAXPROCS change applies', (await state()).numProcs === 2)
 ok('intro stays hidden on same-scenario re-run', !(await page.locator('.intro').isVisible()))
 
@@ -147,10 +167,10 @@ ok('found a STW range to seek to', stwShot !== null)
 
 // 11. language switcher: EN roundtrip (strings bake at boot, so it reloads)
 await page.locator('.lang-btn').click()
-await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: 25000 })
+await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: ms(25000) })
 ok('language switch to EN', /Go Scheduler/.test(await page.locator('.title').textContent()))
 await page.locator('.lang-btn').click()
-await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: 25000 })
+await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: ms(25000) })
 ok('language switch back to RU', /Планировщик Go/.test(await page.locator('.title').textContent()))
 
 console.log('\n=== CONTROL VERIFICATION ===')

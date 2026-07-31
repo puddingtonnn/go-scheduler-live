@@ -123,6 +123,10 @@ jobs:
         env:
           SHOOT_URL: http://localhost:5173
           SHOOT_OUT: ${{ runner.temp }}
+          # A hosted runner is slower than a dev machine and every scenario
+          # switch records a real trace; stretch the bounds rather than assert
+          # the runner's speed.
+          CONTRACT_TIMEOUT_SCALE: '3'
 
       - name: Upload server and frontend logs
         if: failure()
