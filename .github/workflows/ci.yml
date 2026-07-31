@@ -115,9 +115,11 @@ jobs:
             grep '^FAIL' "$RUNNER_TEMP/controls.log" | while read -r line; do
               echo "::error::$line"
             done
-            echo "::error::contract exited $status — tail: $(tail -n 4 "$RUNNER_TEMP/controls.log" | tr '\n' ' | ')"
+            grep -E '^(CONTRACT ABORTED|abort reason|BOOT FAILED|  (PASS|FAIL))' "$RUNNER_TEMP/controls.log" | tail -n 40 | while read -r line; do
+              echo "::error::$line"
+            done
+            echo "::error::contract exited $status — tail: $(tail -n 12 "$RUNNER_TEMP/controls.log" | tr '\n' ' | ')"
             echo "::error::backend tail: $(tail -n 4 "$RUNNER_TEMP/server.log" | tr '\n' ' | ')"
-            echo "::error::vite tail: $(tail -n 4 "$RUNNER_TEMP/vite.log" | tr '\n' ' | ')"
           fi
           exit $status
         env:

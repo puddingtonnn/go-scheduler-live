@@ -11,6 +11,9 @@ const SCALE = Number(process.env.CONTRACT_TIMEOUT_SCALE ?? 1)
 const ms = (base) => Math.round(base * SCALE)
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+// Locator actions have their own default budget; scale it too, or a slow
+// machine times out inside a click while every explicit wait is still generous.
+page.setDefaultTimeout(ms(30000))
 const errors = []
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 page.on('pageerror', (e) => errors.push(String(e)))
@@ -18,7 +21,27 @@ page.on('pageerror', (e) => errors.push(String(e)))
 const results = []
 const ok = (name, cond, detail = '') => { results.push({ name, pass: !!cond, detail }); }
 
-await page.goto(url, { waitUntil: 'networkidle' })
+// Results are only printed at the end, so anything that throws mid-run would
+// otherwise take the whole picture with it. On an abort, say how far we got and
+// what Playwright was waiting for — its message names the offending locator.
+const onAbort = async (e) => {
+  console.log(`\nCONTRACT ABORTED after ${results.length} checks`)
+  for (const r of results) console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${r.name}`)
+  console.log('abort reason:', String(e?.message ?? e).split('\n').slice(0, 6).join(' / '))
+  console.log('page errors:', errors.length ? errors.join(' ; ') : 'none')
+  await page.screenshot({ path: `${outDir}/abort.png` }).catch(() => {})
+  await browser.close().catch(() => {})
+  process.exit(1)
+}
+// A rejected top-level await surfaces as an uncaught exception, not an
+// unhandled rejection — listening only for the latter reports nothing.
+process.on('uncaughtException', onAbort)
+process.on('unhandledRejection', onAbort)
+
+// Not 'networkidle': the app records a trace on boot, so the network is busy by
+// design and idleness never arrives on a slow machine. The real readiness
+// signal is the timeline below.
+await page.goto(url, { waitUntil: 'domcontentloaded' })
 // The first run has to travel the whole pipeline, so when it does not arrive the
 // useful question is "what did the app say", not "which line timed out".
 try {
