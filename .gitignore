@@ -44,3 +44,8 @@ go.work.sum
 # Design-tool exports (the handoff itself lives outside the repo)
 design_handoff*/
 *.dc.html
+
+# Local working notes and agent instructions: personal, machine-specific,
+# and full of pointers into a home directory. Kept on disk, out of the repo.
+docs/design/
+CLAUDE.local.md

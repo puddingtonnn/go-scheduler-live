@@ -1,80 +1,57 @@
 # go-scheduler-live
 
-Учебная визуализация планировщика Go (G–M–P) и GC «гоферами». Backend на Go
-запускает курируемые сценарии под `runtime/trace`, парсит трейс через
-`golang.org/x/exp/trace` в нормализованную `Timeline` (JSON); фронт (Vite +
-TypeScript + PixiJS) проигрывает её по виртуальным часам. **Источник правды —
-реальный рантайм Go**, не выдуманная модель.
+An educational visualization of the real Go scheduler (G–M–P) and the garbage
+collector. A Go backend runs curated workloads under `runtime/trace`, parses the
+trace into a normalized `Timeline`, and a Vite + TypeScript + PixiJS frontend
+replays it on a virtual clock.
 
-> **Архитектура, границы пакетов, семантика `mid`, ловушки и стратегия
-> тестирования — в [`docs/architecture.md`](docs/architecture.md).** Там вся
-> долговечная техническая часть, и она контрибьюторская (английский). Здесь —
-> только рабочие соглашения и текущее состояние.
+**The real Go runtime is the source of truth.** If the trace does not record
+something, do not draw it as if it did. Anything reconstructed, stylized or
+omitted is marked as such and listed in the in-app Assumptions panel. A change
+that makes the world prettier by making it less true is the one thing this
+project will not accept.
 
-## Что уже есть
+## Read these first
 
-- **Бэкенд:** конвейер `tracerun` → `traceparse` → `timeline` → `api`; шесть
-  сценариев (`workstealing`, `pingpong`, `syscalls`, `gcpressure`, `mutexhot`,
-  `leak`); `cmd/bake` печёт статическую матрицу прогонов для Pages.
-- **Плеер:** чистый `stateAt(t) → WorldState`, виртуальные часы, `1x` ≈ 90с на
-  прогон (`BASE_WALL_MS`).
-- **Сцена:** изометрия + пиксель-арт, гоферы по состоянию, тележки-M, зум/пан
-  (до ×6), depth-sort, STW-блик, v3-«живой цех» (фон, будки, ленты, робот,
-  сирена; система прогулок — opt-in через `?walk`).
-- **Хром:** GC-strip и heap-бар по фазам, единый таймлайн-канвас, журнал событий
-  с причинностью, панель «Допущения», интро-карточки, RU/EN, URL-шаринг.
-- **Проверки:** `TestSchedulerInvariants` + анти-регрессии сценариев, 139 vitest,
-  контракт контролов **27/27** (`web/scripts/verify-controls.mjs`), скриншот-
-  харнессы `shoot*.mjs` и `hero.mjs` (картинка для README).
-- **CI:** `ci.yml` — три джобы (Go: vet + golangci-lint + тесты + кросс-сборка;
-  web: tsc + vitest + build; controls: Playwright-контракт на живой паре
-  серверов). `.golangci.yml` — стандартный набор, код чист; игнор ошибок пишем
-  явным `_ =`, sink-переменные помечены `//nolint:unused`.
-- **Демо-режим:** статик-сборка без бэкенда честно помечена — бейдж в баре
-  контролов + группа в «Допущениях» (`isStaticDemo()` из `api.ts`). `cmd/bake`
-  печёт GOMAXPROCS 1/4/8 на каждый сценарий, число горутин — дефолтное.
+- [`docs/architecture.md`](docs/architecture.md) — the pipeline, package
+  boundaries, `mid` binding rules, what is real versus reconstructed, and the
+  traps that shaped the design.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — conventions, the three contribution
+  surfaces (a scenario, a language, a fidelity report), and the checks.
 
-История слайсов — в `git log` и `docs/design/*.md`; здесь не дублируется.
+## Running it
 
-## Conventions
+```bash
+go run ./cmd/server                     # listens on :8080
+cd web && npm install && npm run dev    # proxies /api to :8080
+```
 
-- `go.mod`: **go 1.25** (локально Go 1.26.2, `GOTOOLCHAIN=auto` — минор не форсим).
-- Ошибки оборачиваем через `%w` с контекстом; sentinel-ошибки (`ErrNotFound`) для
-  условий, на которые ветвятся вызыватели.
-- Реестр сценариев — глобальный `map` + `Register` в `init()`; дубликат имени =
-  `panic` (программная ошибка, видна на старте).
-- Современный Go: range-over-int (`for i := range n`), встроенный `max`,
-  per-iteration loop vars (поведение 1.22+).
-- Код, идентификаторы и комментарии — английский; пользовательские строки — через
-  `t()` в `web/src/i18n.ts` (RU + EN, паритет ловит компилятор через `typeof RU`).
-  Названия сценариев приходят с бэкенда по-русски → EN-карта по id в `i18n.ts`.
-- Git-флоу: интеграционная ветка `dev`, каждый слайс — своя ветка от `dev`, merge
-  `--ff-only`, слитую ветку удаляем. **Коммитим и пушим только по просьбе.**
-  Коммиты: лаконичный английский subject + краткий список главных изменений,
-  **без вотермарка** (`Co-Authored-By` и т.п.; см. `~/.claude/CLAUDE.md`).
-
-## Локальный запуск
-
-`:8080` на машине занят Docker → бэкенд поднимаем на `:8085`:
+If :8080 is already taken, move the backend and point the proxy at it:
 
 ```bash
 go run ./cmd/server -addr :8085
-cd web && GMP_API_TARGET=http://localhost:8085 npm run dev
+GMP_API_TARGET=http://localhost:8085 npm run dev
 ```
 
-Проверки: `go test ./...` · `cd web && npx tsc --noEmit && npx vitest run` ·
-`node scripts/verify-controls.mjs` (нужны оба сервера).
+## Checks
 
-## Ловушки самого репозитория
+```bash
+go vet ./... && go test ./...
+golangci-lint run ./...            # the tree is clean; keep it clean
+cd web && npx tsc --noEmit && npx vitest run
+node scripts/verify-controls.mjs   # 27/27, needs both servers running
+```
 
-- В `chrome.ts` i18n импортируется как `tr` — в `update()` есть локальная `const t`.
-- `design_handoff_go_scheduler*/` — исходный дизайн-хэндофф, **в `.gitignore`**:
-  арт портирован процедурно в `web/src/scene/`, внешние ассеты не используются.
-- Бинарный фикстур `internal/traceparse/testdata/workstealing.trace` содержит
-  строку старого имени модуля — это запись реального прогона, править нельзя.
+CI runs all of it on every pull request.
 
-## Текущий слайс
+## Repo-specific gotchas
 
-Открытие проекта в опенсорс: [`docs/design/2026-07-28-opensource-launch-design.md`](docs/design/2026-07-28-opensource-launch-design.md).
-Фаза 0 (гигиена, переименование, доки) — на `feat/oss-launch`; дальше демо на
-Pages, CI, контрибьюторская обвязка, статья.
+- In `web/src/ui/chrome.ts` the i18n helper is imported as `tr`, because
+  `update()` already has a local `const t`.
+- `internal/traceparse/testdata/workstealing.trace` is a binary recording of a
+  real run and still contains the old module name. It is data, not source — do
+  not edit it.
+- All pixel art is drawn procedurally in `web/src/scene/`; there are no external
+  asset files to look for.
+- User-facing strings never appear inline — they go through `t()` in
+  `web/src/i18n.ts`, where the compiler enforces RU/EN parity via `typeof RU`.

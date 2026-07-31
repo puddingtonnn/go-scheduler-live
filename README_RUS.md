@@ -68,15 +68,17 @@ internal/tracerun  ──►  internal/traceparse  ──►  internal/timeline 
 
 ```bash
 # бэкенд (терминал 1)
-go run ./cmd/server -addr :8085
+go run ./cmd/server
 
 # фронтенд (терминал 2)
 cd web
 npm install
-GMP_API_TARGET=http://localhost:8085 npm run dev
+npm run dev
 ```
 
 Откройте http://localhost:5173. Каждый «Запустить» записывает свежий трейс выбранного сценария.
+
+Если `:8080` у вас занят, поднимите бэкенд на другом порту и укажите его дев-прокси: `go run ./cmd/server -addr :8085` вместе с `GMP_API_TARGET=http://localhost:8085 npm run dev`.
 
 ### Статическая сборка (без бэкенда)
 

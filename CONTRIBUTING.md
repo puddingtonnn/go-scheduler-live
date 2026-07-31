@@ -15,13 +15,15 @@ merged. A change that makes it uglier and more honest probably will.
 Prerequisites: **Go 1.25+**, **Node 20+**.
 
 ```bash
-go run ./cmd/server -addr :8085                              # terminal 1
-cd web && npm install
-GMP_API_TARGET=http://localhost:8085 npm run dev             # terminal 2
+go run ./cmd/server                    # terminal 1, listens on :8080
+cd web && npm install && npm run dev   # terminal 2, proxies /api to :8080
 ```
 
 Then open http://localhost:5173. Every **Run** records a fresh trace on your
 machine — the numbers you see are yours.
+
+If :8080 is taken, move the backend and tell the proxy where it went:
+`go run ./cmd/server -addr :8085` with `GMP_API_TARGET=http://localhost:8085 npm run dev`.
 
 Before opening a pull request:
 

@@ -68,15 +68,17 @@ Prerequisites: **Go 1.25+**, **Node 20+**.
 
 ```bash
 # backend (terminal 1)
-go run ./cmd/server -addr :8085
+go run ./cmd/server
 
 # frontend (terminal 2)
 cd web
 npm install
-GMP_API_TARGET=http://localhost:8085 npm run dev
+npm run dev
 ```
 
 Open http://localhost:5173. Each **Run** records a fresh trace of the selected scenario.
+
+If :8080 is already taken on your machine, move the backend and point the dev proxy at it: `go run ./cmd/server -addr :8085` with `GMP_API_TARGET=http://localhost:8085 npm run dev`.
 
 ### Static build (no backend)
 
