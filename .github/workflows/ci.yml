@@ -115,7 +115,9 @@ jobs:
             grep '^FAIL' "$RUNNER_TEMP/controls.log" | while read -r line; do
               echo "::error::$line"
             done
-            grep -E '^(CONTRACT ABORTED|abort reason|BOOT FAILED|  (PASS|FAIL))' "$RUNNER_TEMP/controls.log" | tail -n 40 | while read -r line; do
+            # GitHub keeps only ~10 annotations per step, so spend them on the
+            # reason and the failures — never on the checks that passed.
+            grep -E '^(abort reason|BOOT FAILED|CONTRACT ABORTED|  FAIL|FAIL)' "$RUNNER_TEMP/controls.log" | head -n 8 | while read -r line; do
               echo "::error::$line"
             done
             echo "::error::contract exited $status — tail: $(tail -n 12 "$RUNNER_TEMP/controls.log" | tr '\n' ' | ')"

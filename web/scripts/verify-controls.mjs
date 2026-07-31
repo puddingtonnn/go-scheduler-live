@@ -25,10 +25,13 @@ const ok = (name, cond, detail = '') => { results.push({ name, pass: !!cond, det
 // otherwise take the whole picture with it. On an abort, say how far we got and
 // what Playwright was waiting for — its message names the offending locator.
 const onAbort = async (e) => {
-  console.log(`\nCONTRACT ABORTED after ${results.length} checks`)
-  for (const r of results) console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${r.name}`)
-  console.log('abort reason:', String(e?.message ?? e).split('\n').slice(0, 6).join(' / '))
+  // Reason first: annotation budget is small, and "what broke" beats "what
+  // worked". The last completed check is what locates the abort in the script.
+  console.log('\nabort reason:', String(e?.message ?? e).split('\n').slice(0, 6).join(' / '))
+  console.log(`CONTRACT ABORTED after ${results.length} checks, last one: ${results.at(-1)?.name ?? '(none)'}`)
+  for (const r of results.filter((r) => !r.pass)) console.log(`  FAIL  ${r.name}`)
   console.log('page errors:', errors.length ? errors.join(' ; ') : 'none')
+  for (const r of results) console.log(`  ${r.pass ? 'PASS' : 'FAIL'}  ${r.name}`)
   await page.screenshot({ path: `${outDir}/abort.png` }).catch(() => {})
   await browser.close().catch(() => {})
   process.exit(1)
@@ -143,7 +146,10 @@ const assume = page.locator('.assumptions summary')
 await assume.click()
 ok('assumptions panel opens', await page.locator('.assumptions').evaluate((e) => e.open))
 ok('assumptions list the reconstruction caveat', /реконструкц/i.test(await page.locator('.assume-body').textContent()))
-await assume.click()
+// Closing is cleanup, not a control under test. Expanding the panel resizes the
+// stage, which relays out the Pixi canvas, so a click here waits for the summary
+// to stop moving — a wait a slow machine loses. Set the state directly instead.
+await page.locator('.assumptions').evaluate((e) => { e.open = false })
 
 // 8. Scenario change auto-runs (no Запустить needed) → gcpressure (real GC)
 await page.evaluate(() => {
