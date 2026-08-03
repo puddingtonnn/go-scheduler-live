@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload server and frontend logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: control-failure-logs
           path: ${{ runner.temp }}/*.log
@@ -142,7 +142,7 @@ jobs:
 
       - name: Upload failure screenshots
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: control-failure-shots
           path: ${{ runner.temp }}/*.png
