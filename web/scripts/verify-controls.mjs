@@ -121,27 +121,51 @@ s = await state()
 ok('scrub seeks (~60%)', Math.abs(s.t / s.duration - 0.6) < 0.02, `${(s.t / s.duration).toFixed(3)}`)
 ok('scrub pauses', s.playing === false)
 
-// 7. id toggle
+// 7. Learn/Full UI-mode toggle. The mode button carries no stable class (the
+// `.mode-btn` CSS in index.html is currently unused — see report), so select it
+// by `aria-expanded`, which only this button sets (id/M use `aria-pressed`).
+// This block runs BEFORE the id/M toggles below and deliberately leaves the app
+// in Full mode afterward, because `.controls-advanced` (id/M/GOMAXPROCS
+// stepper/goroutines) is display:none in Learn mode and 7a/7b need it clickable.
+const modeBtn = page.locator('.controls button[aria-expanded]').first()
+const legendVisibleCount = () => page.locator('.chrome-legend .leg-item:visible').count()
+ok(
+  'starts in Learn mode: event log and legend items hidden',
+  (await page.locator('.event-log').isVisible()) === false && (await legendVisibleCount()) === 0,
+)
+await modeBtn.click() // → Full mode
+ok(
+  'mode toggle reveals the event log and legend',
+  (await page.locator('.event-log').isVisible()) === true && (await legendVisibleCount()) > 0,
+)
+
+// 7a. id toggle — depends on 7 above leaving the app in Full mode.
 const idBtn = page.locator('.controls button', { hasText: /^id$/ }).first()
+const mBtn = page.locator('.controls button', { hasText: /^M$/ }).first()
+ok('id/M buttons are visible in Full mode', (await idBtn.isVisible()) && (await mBtn.isVisible()))
 const wasActive = await idBtn.evaluate((e) => e.classList.contains('active'))
 await idBtn.click()
 ok('id toggle flips state', (await idBtn.evaluate((e) => e.classList.contains('active'))) !== wasActive)
 
 // 7b. M (OS thread) toggle
-const mBtn = page.locator('.controls button', { hasText: /^M$/ }).first()
 const mWasActive = await mBtn.evaluate((e) => e.classList.contains('active'))
 await mBtn.click()
 ok('M toggle flips state', (await mBtn.evaluate((e) => e.classList.contains('active'))) !== mWasActive)
 await mBtn.click() // back on: carriers visible for the screenshots below
 
-// 7c. event log toggle
-const logBtn = page.locator('.controls button', { hasText: /^лог$/ }).first()
-const logVisibleBefore = await page.locator('.event-log').isVisible()
-await logBtn.click()
-ok('log toggle hides/shows the journal', (await page.locator('.event-log').isVisible()) !== logVisibleBefore)
-await logBtn.click() // back on
+// 7c. mode toggle back to Learn mode: event log + legend hide again
+await modeBtn.click() // → Learn mode
+ok(
+  'mode toggle hides the event log and legend',
+  (await page.locator('.event-log').isVisible()) === false && (await legendVisibleCount()) === 0,
+)
 
-// 7d. assumptions disclosure under the legend
+// 7d. hard project rule: the assumptions disclosure is never hidden by the
+// UI-mode toggle, even though it lives under `.chrome-legend` alongside the
+// legend items that Learn mode does hide.
+ok('assumptions line stays visible in Learn mode', await page.locator('.assumptions summary').isVisible())
+
+// 7e. assumptions disclosure under the legend
 const assume = page.locator('.assumptions summary')
 await assume.click()
 ok('assumptions panel opens', await page.locator('.assumptions').evaluate((e) => e.open))

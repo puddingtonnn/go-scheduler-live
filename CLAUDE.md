@@ -39,7 +39,7 @@ GMP_API_TARGET=http://localhost:8085 npm run dev
 go vet ./... && go test ./...
 golangci-lint run ./...            # the tree is clean; keep it clean
 cd web && npx tsc --noEmit && npx vitest run
-node scripts/verify-controls.mjs   # 27/27, needs both servers running
+node scripts/verify-controls.mjs   # 31/31, needs both servers running
 ```
 
 CI runs all of it on every pull request.
