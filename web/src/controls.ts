@@ -76,6 +76,7 @@ export class Controls {
       const next: UiMode = getUiModeState().mode === 'learn' ? 'full' : 'learn'
       setUiMode(next)
     })
+    this.modeBtn.className = 'mode-btn'
     this.syncModeBtn(getUiModeState().mode)
 
     const speeds = document.createElement('div')
