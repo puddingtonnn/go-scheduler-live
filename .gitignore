@@ -49,3 +49,4 @@ design_handoff*/
 # and full of pointers into a home directory. Kept on disk, out of the repo.
 docs/design/
 CLAUDE.local.md
+.worktrees/
