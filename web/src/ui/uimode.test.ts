@@ -63,20 +63,35 @@ describe('uimode', () => {
   })
 
   describe('fresh load', () => {
-    it('respects a previously persisted mode', () => {
-      // Simulate persisted mode
-      store['gmp.uimode'] = 'full'
+    it('respects a previously persisted mode', async () => {
+      // Set up localStorage with a persisted mode BEFORE importing the module
+      let freshStore: Record<string, string> = { 'gmp.uimode': 'full' }
 
-      // Re-import to simulate fresh module load
-      // Since we can't actually reload the module in this test,
-      // we'll test the logic by checking that localStorage is read on init
-      // For this, we create a fresh instance by checking the store directly
-      // The initial state should be learned from localStorage in a real scenario
-      // Since the module is already loaded, we test that setMode persists correctly
-      setMode('full')
-      expect(store['gmp.uimode']).toBe('full')
-      const newState = getState()
-      expect(newState.mode).toBe('full')
+      // Create mock that reads from freshStore
+      const freshStorageMock = {
+        getItem: (key: string) => freshStore[key] ?? null,
+        setItem: (key: string, value: string) => {
+          freshStore[key] = value
+        },
+        removeItem: (key: string) => {
+          delete freshStore[key]
+        },
+        clear: () => {
+          freshStore = {}
+        },
+        key: (index: number) => Object.keys(freshStore)[index] ?? null,
+        length: Object.keys(freshStore).length,
+      }
+      globalThis.localStorage = freshStorageMock as any
+
+      // NOW reset modules and import fresh — the IIFE will run against the pre-populated store
+      vi.resetModules()
+      const uimode = await import('./uimode')
+
+      // The module should have initialized with mode: 'full' from localStorage
+      const initialState = uimode.getState()
+      expect(initialState.mode).toBe('full')
+      expect(initialState.present).toBe(false)
     })
   })
 
@@ -168,8 +183,10 @@ describe('uimode', () => {
   })
 
   describe('localStorage error handling', () => {
-    it('defaults to learn mode if localStorage throws on read', () => {
-      const localStorageMock = {
+    it('defaults to learn mode if localStorage throws on read', async () => {
+      // Set up a throwing localStorage BEFORE importing the module
+      // so the IIFE initialization catches the error
+      const throwingMock = {
         getItem: () => {
           throw new Error('blocked')
         },
@@ -179,13 +196,19 @@ describe('uimode', () => {
         key: () => null,
         length: 0,
       }
-      globalThis.localStorage = localStorageMock as any
+      globalThis.localStorage = throwingMock as any
 
-      // Since the module is already initialized, we test that setMode
-      // handles localStorage errors gracefully
-      const beforeThrow = getState()
-      expect(beforeThrow.mode).toBe('learn') // still uses default
+      // Reset modules and import fresh — the IIFE catches the throw and defaults to 'learn'
+      vi.resetModules()
+      const uimode = await import('./uimode')
 
+      // The module should have defaulted to 'learn' despite the throw
+      const initialState = uimode.getState()
+      expect(initialState.mode).toBe('learn')
+      expect(initialState.present).toBe(false)
+    })
+
+    it('handles localStorage throws on setItem gracefully', () => {
       // setMode should not throw even if setItem fails
       const failingMock = {
         getItem: () => null,
