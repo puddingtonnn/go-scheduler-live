@@ -275,9 +275,8 @@ export class EventLog {
     }
   }
 
-  toggle(): boolean {
-    this.visible = !this.visible
-    this.root.style.display = this.visible ? '' : 'none'
-    return this.visible
+  setVisible(v: boolean): void {
+    this.visible = v
+    this.root.style.display = v ? '' : 'none'
   }
 }

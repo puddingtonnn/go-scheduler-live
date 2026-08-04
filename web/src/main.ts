@@ -9,6 +9,7 @@ import { EventLog } from './ui/eventlog'
 import { TimelineBar } from './ui/timeline'
 import { midAliases } from './scene/layout'
 import { t, getLang, scenarioTitle, scenarioDesc } from './i18n'
+import { subscribe as subscribeUiMode, getState as getUiModeState } from './ui/uimode'
 
 // Composition root: builds the DOM chrome (header + GC strip + legend) around the
 // canvas stage and the control bar, then on each run fetches a Timeline,
@@ -62,9 +63,20 @@ async function boot(): Promise<void> {
     (p) => void run(p),
     () => scene?.toggleIds() ?? false,
     () => scene?.toggleThreads() ?? false,
-    () => eventLog.toggle(),
     (info) => chrome.setScenario(info),
   )
+
+  // Learn/Full UI mode: main.ts is the single subscriber, fanning the shared
+  // uimode state out to setter methods on Controls/Chrome/EventLog.
+  subscribeUiMode((s) => {
+    controls.setMode(s.mode)
+    chrome.setMode(s.mode)
+    eventLog.setVisible(s.mode === 'full')
+  })
+  const initialUiState = getUiModeState()
+  controls.setMode(initialUiState.mode)
+  chrome.setMode(initialUiState.mode)
+  eventLog.setVisible(initialUiState.mode === 'full')
 
   const intro = makeIntro(stage)
 

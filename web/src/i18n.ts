@@ -157,14 +157,19 @@ const RU = {
     ariaRun: 'запустить выбранный сценарий',
     idTip: 'показать номера горутин',
     mTip: 'показать OS-потоки (M)',
-    logLabel: 'лог',
-    logTip: 'показать журнал событий',
     scenario: 'сценарий',
     scenarioCap: 'СЦЕНАРИЙ',
     goroutines: 'горутины',
     procsTip: 'GOMAXPROCS — число P (слотов выполнения). Ограничено 1–8 под размер изо-сцены',
     gorTip: 'Сколько горутин запустить в сценарии (диапазон зависит от сценария)',
     ms: 'мс',
+  },
+
+  mode: {
+    more: 'Подробнее',
+    less: 'Свернуть',
+    moreTip: 'показать журнал событий и легенду',
+    lessTip: 'скрыть журнал событий и легенду',
   },
 
   intro: {
@@ -386,14 +391,19 @@ const EN: Strings = {
     ariaRun: 'run the selected scenario',
     idTip: 'show goroutine ids',
     mTip: 'show OS threads (M)',
-    logLabel: 'log',
-    logTip: 'show the event log',
     scenario: 'scenario',
     scenarioCap: 'SCENARIO',
     goroutines: 'goroutines',
     procsTip: 'GOMAXPROCS — the number of P (execution slots). Limited to 1–8 to fit the iso scene',
     gorTip: 'How many goroutines the scenario starts (the range depends on the scenario)',
     ms: 'ms',
+  },
+
+  mode: {
+    more: 'More',
+    less: 'Less',
+    moreTip: 'show the event log and legend',
+    lessTip: 'hide the event log and legend',
   },
 
   intro: {

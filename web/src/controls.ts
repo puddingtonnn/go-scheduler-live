@@ -3,6 +3,7 @@ import type { RunParams } from './api'
 import type { Player } from './player/player'
 import { isStaticDemo } from './api'
 import { t, scenarioTitle } from './i18n'
+import { getState as getUiModeState, setMode as setUiMode, type UiMode } from './ui/uimode'
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4]
 
@@ -23,6 +24,8 @@ export class Controls {
   private readonly procsVal: HTMLSpanElement
   private readonly goroutinesInput: HTMLInputElement
   private readonly runBtn: HTMLButtonElement
+  private readonly advanced: HTMLElement
+  private readonly modeBtn: HTMLButtonElement
 
   constructor(
     container: HTMLElement,
@@ -30,7 +33,6 @@ export class Controls {
     private readonly onRun: (p: RunParams) => void,
     private readonly onToggleIds?: () => boolean,
     private readonly onToggleThreads?: () => boolean,
-    private readonly onToggleLog?: () => boolean,
     private readonly onScenarioChange?: (info: ScenarioInfo) => void,
   ) {
     const S = t()
@@ -67,15 +69,14 @@ export class Controls {
     mBtn.classList.add('active')
     mBtn.setAttribute('aria-pressed', 'true')
 
-    const logBtn = button(S.controls.logLabel, () => {
-      const on = this.onToggleLog?.() ?? false
-      logBtn.classList.toggle('active', on)
-      logBtn.setAttribute('aria-pressed', String(on))
+    // mode-btn toggles Learn/Full UI mode via the shared uimode module; Controls
+    // reacts to its own click by writing the mode, and the resulting DOM update
+    // (here and in Chrome/EventLog) happens through main.ts's single subscription.
+    this.modeBtn = button(S.mode.more, () => {
+      const next: UiMode = getUiModeState().mode === 'learn' ? 'full' : 'learn'
+      setUiMode(next)
     })
-    logBtn.title = S.controls.logTip
-    // the event log is visible by default, so the toggle starts active.
-    logBtn.classList.add('active')
-    logBtn.setAttribute('aria-pressed', 'true')
+    this.syncModeBtn(getUiModeState().mode)
 
     const speeds = document.createElement('div')
     speeds.className = 'speeds'
@@ -189,21 +190,21 @@ export class Controls {
     this.runBtn.className = 'run'
     this.runBtn.setAttribute('aria-label', S.controls.ariaRun)
 
+    this.advanced = document.createElement('div')
+    this.advanced.className = 'controls-advanced'
+    this.advanced.append(idBtn, mBtn, sep(), stepper, labeled(S.controls.goroutines, this.goroutinesInput))
+
     bar.append(
       this.playBtn,
       stepBtn,
       speeds,
       this.scrub,
       this.time,
-      idBtn,
-      mBtn,
-      logBtn,
-      sep(),
+      this.modeBtn,
       scenChips,
       this.scenarioSel,
-      stepper,
+      this.advanced,
       this.procsInput,
-      labeled(S.controls.goroutines, this.goroutinesInput),
       this.runBtn,
     )
     // In the static demo the params pick the nearest baked run rather than
@@ -241,6 +242,22 @@ export class Controls {
       gomaxprocs: clampNum(this.procsInput, 1, 8),
       goroutines: clampNum(this.goroutinesInput, gLo, gHi),
     }
+  }
+
+  // setMode hides/shows the advanced controls (id/M toggles, GOMAXPROCS
+  // stepper, goroutines input) for Learn vs Full UI mode. Driven by main.ts's
+  // single uimode subscription, not by Controls itself.
+  setMode(mode: UiMode): void {
+    this.advanced.style.display = mode === 'learn' ? 'none' : ''
+    this.syncModeBtn(mode)
+  }
+
+  private syncModeBtn(mode: UiMode): void {
+    const S = t().mode
+    const showingFull = mode === 'full'
+    this.modeBtn.textContent = showingFull ? S.less : S.more
+    this.modeBtn.title = showingFull ? S.lessTip : S.moreTip
+    this.modeBtn.setAttribute('aria-expanded', String(showingFull))
   }
 
   bindPlayer(player: Player): void {

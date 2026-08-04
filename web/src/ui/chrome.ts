@@ -177,6 +177,13 @@ export class Chrome {
     this.subtitle.textContent = info ? scenarioDesc(info) : ''
   }
 
+  // setMode hides the legend items + hint in Learn mode (the assumptions
+  // <details> below them stays visible either way — CSS in index.html scopes
+  // the hiding to .leg-item/.leg-hint under .chrome-legend.mode-learn).
+  setMode(mode: 'learn' | 'full'): void {
+    this.legend.classList.toggle('mode-learn', mode === 'learn')
+  }
+
   // setTimeline wires the per-run trace: builds the GC summary (for the cycle
   // readout + STW banner detection) and resets step tracking. The to-scale GC
   // bands themselves are drawn by the timeline canvas.
