@@ -121,13 +121,12 @@ s = await state()
 ok('scrub seeks (~60%)', Math.abs(s.t / s.duration - 0.6) < 0.02, `${(s.t / s.duration).toFixed(3)}`)
 ok('scrub pauses', s.playing === false)
 
-// 7. Learn/Full UI-mode toggle. The mode button carries no stable class (the
-// `.mode-btn` CSS in index.html is currently unused — see report), so select it
-// by `aria-expanded`, which only this button sets (id/M use `aria-pressed`).
+// 7. Learn/Full UI-mode toggle. The mode button carries a stable `.mode-btn`
+// class, so select it directly (id/M use `aria-pressed`, not a stable class).
 // This block runs BEFORE the id/M toggles below and deliberately leaves the app
 // in Full mode afterward, because `.controls-advanced` (id/M/GOMAXPROCS
 // stepper/goroutines) is display:none in Learn mode and 7a/7b need it clickable.
-const modeBtn = page.locator('.controls button[aria-expanded]').first()
+const modeBtn = page.locator('.controls .mode-btn').first()
 const legendVisibleCount = () => page.locator('.chrome-legend .leg-item:visible').count()
 ok(
   'starts in Learn mode: event log and legend items hidden',

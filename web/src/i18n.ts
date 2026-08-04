@@ -179,7 +179,7 @@ const RU = {
       '<b>G</b> — горутина (один гофер = одна горутина), <b>P</b> — платформа: слот выполнения (их =GOMAXPROCS). ' +
       'Горутина бежит, только стоя на P; заблокированная — уходит вниз в зоны ожидания. ' +
       '<b>M</b> — OS-поток (тележка с номером): id настоящие, из трейса. В блокирующем syscall M уходит вместе с горутиной, а P получает новый M; запаркованные M не рисуются. ' +
-      'Внизу — подпись, что происходит сейчас, и журнал событий. ' +
+      'Внизу — подпись, что происходит сейчас; журнал событий и легенда открываются кнопкой «Подробнее». ' +
       'Колесо мыши приближает мир (id читаются вблизи), перетаскивание двигает, двойной клик — весь мир. ' +
       'Мир — реконструкция поверх настоящего трейса: что условно, а что факт — в «Допущениях» под легендой. ',
   },
@@ -413,7 +413,7 @@ const EN: Strings = {
       '<b>G</b> — a goroutine (one gopher = one goroutine), <b>P</b> — a platform: an execution slot (there are GOMAXPROCS of them). ' +
       'A goroutine runs only while standing on a P; a blocked one moves down to the waiting zones. ' +
       '<b>M</b> — an OS thread (the numbered carrier): ids are real, from the trace. In a blocking syscall the M leaves together with the goroutine and the P gets a new M; parked M’s are not drawn. ' +
-      'At the bottom — a caption of what is happening now, and the event log. ' +
+      'At the bottom — a caption of what is happening now; the event log and legend open with the “More” button. ' +
       'Mouse wheel zooms the world (ids are readable up close), dragging pans, double click — the whole world. ' +
       'The world is a reconstruction over a real trace: see “Assumptions” under the legend for what is stylized and what is fact. ',
   },

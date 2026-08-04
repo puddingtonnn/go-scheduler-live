@@ -57,7 +57,9 @@ export function subscribe(fn: (s: UiState) => void): () => void {
 
 function notifySubscribers(): void {
   const snapshot = { ...state }
-  for (const fn of subscribers) {
+  // Iterate a shallow copy: a subscriber may (un)subscribe during notification,
+  // which would otherwise mutate the live array mid-iteration.
+  for (const fn of [...subscribers]) {
     fn(snapshot)
   }
 }

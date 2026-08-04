@@ -3,10 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 describe('uimode', () => {
   // Mock localStorage
   let store: Record<string, string> = {}
-  let getState: any
-  let setMode: any
-  let setPresent: any
-  let subscribe: any
+  let getState: typeof import('./uimode').getState
+  let setMode: typeof import('./uimode').setMode
+  let setPresent: typeof import('./uimode').setPresent
+  let subscribe: typeof import('./uimode').subscribe
 
   beforeEach(async () => {
     vi.resetModules()

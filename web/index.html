@@ -434,8 +434,9 @@
         border-color: var(--teal);
       }
 
-      /* Learn/Full UI-mode toggle (control bar): same register as .lang-btn */
-      .mode-btn {
+      /* Learn/Full UI-mode toggle (control bar): scoped past .controls button
+         so these declarations actually win; same register as .lang-btn. */
+      .controls .mode-btn {
         font-family: var(--pf);
         font-size: 13px;
         background: var(--bg1);
@@ -445,7 +446,7 @@
         cursor: pointer;
         align-self: center;
       }
-      .mode-btn:hover {
+      .controls .mode-btn:hover {
         color: var(--tx-hi);
         border-color: var(--teal);
       }
