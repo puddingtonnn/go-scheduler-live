@@ -194,6 +194,10 @@ export class Controls {
     this.advanced.className = 'controls-advanced'
     this.advanced.append(idBtn, mBtn, sep(), stepper, labeled(S.controls.goroutines, this.goroutinesInput))
 
+    // this.procsInput must precede this.advanced in document order: the harness
+    // (scripts/verify-controls.mjs) reads `.controls input[type=number]`[0] as
+    // GOMAXPROCS, and .advanced also nests goroutinesInput (type=number) —
+    // display:none on .advanced in Learn mode does not change document order.
     bar.append(
       this.playBtn,
       stepBtn,
@@ -203,8 +207,8 @@ export class Controls {
       this.modeBtn,
       scenChips,
       this.scenarioSel,
-      this.advanced,
       this.procsInput,
+      this.advanced,
       this.runBtn,
     )
     // In the static demo the params pick the nearest baked run rather than
