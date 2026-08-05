@@ -242,6 +242,19 @@ await page.locator('.lang-btn').click()
 await page.waitForFunction(() => globalThis.gmp?.player?.duration > 0, { timeout: ms(25000) })
 ok('language switch back to RU', /Планировщик Go/.test(await page.locator('.title').textContent()))
 
+// 12. Present mode: F enters (body.present + controls hidden), Escape exits
+// (class cleared + controls restored). requestFullscreen() is best-effort in
+// present.ts and typically rejects headless — only the CSS-driven class/
+// visibility are asserted here, never document.fullscreenElement.
+await page.keyboard.press('f')
+await page.waitForTimeout(150)
+ok('present mode: F sets body.present', await page.evaluate(() => document.body.classList.contains('present')))
+ok('present mode: controls hidden', !(await page.locator('.controls').isVisible()))
+await page.keyboard.press('Escape')
+await page.waitForTimeout(150)
+ok('present mode: Escape clears body.present', !(await page.evaluate(() => document.body.classList.contains('present'))))
+ok('present mode: controls visible again', await page.locator('.controls').isVisible())
+
 console.log('\n=== CONTROL VERIFICATION ===')
 for (const r of results) console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '  [' + r.detail + ']' : ''}`)
 const failed = results.filter((r) => !r.pass)

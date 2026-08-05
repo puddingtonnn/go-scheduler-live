@@ -172,9 +172,10 @@ always-visible **Assumptions** panel.
 Reconstructions are marked `(reconstr.)` in tooltips and are kept **out of the
 event log**, which shows only facts.
 
-## UI states: picking what to replay
+## UI states: picking what to replay, and how
 
-The stage the player replays into can be filled two ways:
+The stage the player replays into can be filled two ways, plus a third state
+for how it's viewed:
 
 - **scenario picker** — one of the curated scenarios above, run on demand via
   `GET /api/run` and cached by its parameters.
@@ -184,6 +185,11 @@ The stage the player replays into can be filled two ways:
   `web/src/ui/uploadtrace.ts`. Not cached, not shareable via the URL share
   codec — only scenario runs have a stable, reproducible parameter set to
   encode.
+- **present mode** — a distraction-free fullscreen view, toggled by `F`
+  (`Escape` to exit) via `web/src/ui/present.ts`. It doesn't change what's
+  replayed, only what chrome is on screen while it plays: a `body.present`
+  CSS rule hides the header, timeline, controls and event log, leaving the
+  legend and a small auto-hiding "wand" (play/pause, seek, time, close).
 
 ## Engineering traps
 
