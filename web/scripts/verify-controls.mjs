@@ -194,6 +194,23 @@ const stwCount = await page.evaluate(() =>
 ok('trace surfaces real STW ranges', stwCount > 0, `${stwCount} STW`)
 ok('unified timeline canvas present', (await page.locator('.timeline canvas').count()) === 1)
 
+// 8a. custom-trace chip opens the upload panel. No real upload here — there's
+// no .trace file to upload in this environment, and fabricating one would
+// exercise a different path than a real user's file picker/drag-drop. The
+// chip only renders when the dev server isn't a static-demo build (see
+// controls.ts / isStaticDemo), so it being visible also confirms that.
+const customChip = page.locator('.chip[data-id="custom"]')
+ok('custom-trace chip is visible', await customChip.isVisible())
+const panelHiddenBefore = !(await page.locator('.upload-panel').isVisible())
+await customChip.click()
+const panelVisibleAfter = await page.locator('.upload-panel').isVisible()
+ok('custom-trace chip opens the upload panel', panelHiddenBefore && panelVisibleAfter)
+// No close affordance exists in the UI (it only hides itself on a successful
+// upload or a scenario switch, neither of which happens here), and leaving it
+// open would sit on top of the canvas for the STW screenshot in check 10 —
+// so hide it directly, the same way check 7e closes the assumptions panel.
+await page.locator('.upload-panel').evaluate((e) => { e.style.display = 'none' })
+
 // 9. GOMAXPROCS change + run
 await page.evaluate(() => {
   const inp = document.querySelectorAll('.controls input[type=number]')[0]; inp.value = '2'; inp.dispatchEvent(new Event('input', { bubbles: true }))

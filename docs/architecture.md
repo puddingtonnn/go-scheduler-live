@@ -75,11 +75,31 @@ Go and TypeScript must agree; change one and change the other.
 
 - `GET /api/scenarios` → `[]scenarios.ScenarioInfo`
 - `GET /api/run?scenario=&gomaxprocs=&goroutines=&duration=` → `timeline.Timeline`
+- `POST /api/trace` (body: raw bytes of a `.trace` file) → `timeline.Timeline`
 
-An unknown scenario is a `404`. Every other parameter is **clamped, never
-rejected**: `gomaxprocs` to `[1, 8]`, `duration` to `[100ms, 10s]`, and
+An unknown scenario is a `404`. Every other `/api/run` parameter is **clamped,
+never rejected**: `gomaxprocs` to `[1, 8]`, `duration` to `[100ms, 10s]`, and
 `goroutines` to the scenario's own `ParamSpec`. The upper bound on `gomaxprocs`
 is a UI constraint (eight isometric stations fit the world), not a Go one.
+
+`/api/trace` has no clamping to fall back on — an arbitrary uploaded trace is
+**rejected outright** once it exceeds a limit, because there is no parameter to
+adjust on the caller's behalf the way `gomaxprocs` or `duration` can be. Limits
+(`internal/api/trace.go`):
+
+| Limit | Value | Error `code` | HTTP status |
+|---|---:|---|---:|
+| body size | 16 MB | `too_big` | 413 |
+| max events | 200,000 | `too_dense` | 400 |
+| max observed Ps | 8 (`maxProcs`, same constant as `/api/run`'s `gomaxprocs` clamp) | `too_many_procs` | 400 |
+| not a valid trace | — | `not_a_trace` | 400 |
+| unreadable / malformed body | — | `unreadable` | 400 |
+
+Unlike scenario runs, uploads are **never cached**: a scenario run's cache key
+is `scenario|gomaxprocs|goroutines|duration`, but arbitrary uploaded bytes have
+no equivalent natural key — hashing the whole body just to save a parse that
+only happens once per upload isn't worth the complexity (see the comment on
+`handleTraceUpload` in `internal/api/trace.go`).
 
 ## Scenarios
 
@@ -147,9 +167,23 @@ always-visible **Assumptions** panel.
 | GC cycles, mark phases, STW durations | parked M's (the trace has no M lifecycle) |
 | heap metrics (downsampled) | queue capacity: 6 shown vs 256 real |
 | syscall enter/exit and sysmon retake | time scale, slowed thousands of times |
+| — | for an **uploaded trace**, `numProcs` (lower bound: distinct Ps *observed* in the trace, not the true `GOMAXPROCS` the program ran with — the trace format doesn't record `GOMAXPROCS` itself) |
 
 Reconstructions are marked `(reconstr.)` in tooltips and are kept **out of the
 event log**, which shows only facts.
+
+## UI states: picking what to replay
+
+The stage the player replays into can be filled two ways:
+
+- **scenario picker** — one of the curated scenarios above, run on demand via
+  `GET /api/run` and cached by its parameters.
+- **custom-trace upload** — a visitor's own `.trace` file, via the chip next to
+  the scenario chips (hidden on the static-demo build, since there is no
+  backend to upload to) and the instructions/drop-target panel in
+  `web/src/ui/uploadtrace.ts`. Not cached, not shareable via the URL share
+  codec — only scenario runs have a stable, reproducible parameter set to
+  encode.
 
 ## Engineering traps
 

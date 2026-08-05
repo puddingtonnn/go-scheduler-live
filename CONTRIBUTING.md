@@ -22,6 +22,24 @@ cd web && npm install && npm run dev   # terminal 2, proxies /api to :8080
 Then open http://localhost:5173. Every **Run** records a fresh trace on your
 machine — the numbers you see are yours.
 
+You are not limited to the curated scenarios: the **custom-trace** chip next to
+the scenario chips lets you replay a `.trace` file you recorded yourself, from
+any program, anywhere. Record one with the standard `runtime/trace` snippet:
+
+```go
+f, _ := os.Create("mytrace.trace")
+trace.Start(f)
+// ... your program ...
+trace.Stop()
+f.Close()
+```
+
+then click the custom-trace chip in the running app and upload `mytrace.trace`.
+It goes through the same `Timeline` pipeline as a curated scenario, just
+without a scenario name or a cache entry — see
+[`docs/architecture.md`](docs/architecture.md#http-api) for the size/density
+limits it is checked against.
+
 If :8080 is taken, move the backend and tell the proxy where it went:
 `go run ./cmd/server -addr :8085` with `GMP_API_TARGET=http://localhost:8085 npm run dev`.
 
