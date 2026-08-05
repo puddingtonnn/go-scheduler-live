@@ -11,6 +11,7 @@ import { createUploadPanel, traceFacts } from './ui/uploadtrace'
 import { midAliases } from './scene/layout'
 import { t, getLang, scenarioTitle, scenarioDesc } from './i18n'
 import { subscribe as subscribeUiMode, getState as getUiModeState, type UiState } from './ui/uimode'
+import { createPresentMode } from './ui/present'
 
 // A run either replays a curated scenario (fetched via fetchRun, share-able,
 // remembered as lastRun for re-runs) or replays a trace the visitor uploaded
@@ -116,9 +117,17 @@ async function boot(): Promise<void> {
     controls.setMode(s.mode)
     chrome.setMode(s.mode)
     eventLog.setVisible(s.mode === 'full')
+    chrome.setPresent(s.present)
   }
   subscribeUiMode(applyUiMode)
   applyUiMode(getUiModeState())
+
+  // Present mode: distraction-free fullscreen, entered via F/the header button,
+  // exited via F/Escape/the wand's close button/the browser's own fullscreen
+  // exit. player is a mutable `let` reassigned per run (see applyTimeline
+  // below), so present.ts reads it through this closure rather than by value.
+  const present = createPresentMode({ chrome, playerRef: () => player })
+  chrome.presentBtn.addEventListener('click', () => present.toggle())
 
   const intro = makeIntro(stage)
 
@@ -273,6 +282,10 @@ async function boot(): Promise<void> {
       e.preventDefault()
       player?.toggle()
       controls.sync() // keyboard toggle doesn't emit a tick when pausing — sync the label
+    } else if (e.code === 'KeyF') {
+      present.toggle()
+    } else if (e.code === 'Escape') {
+      present.exit() // a no-op when present mode is already inactive
     }
   })
 }

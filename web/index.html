@@ -434,6 +434,23 @@
         border-color: var(--teal);
       }
 
+      /* --- present-mode toggle (chrome header) --- */
+      .present-btn {
+        font-family: var(--pf);
+        font-size: 16px;
+        line-height: 1;
+        background: var(--bg1);
+        color: var(--tx-mid);
+        border: 1px solid var(--line2);
+        padding: 4px 10px;
+        cursor: pointer;
+        align-self: center;
+      }
+      .present-btn:hover {
+        color: var(--tx-hi);
+        border-color: var(--teal);
+      }
+
       /* Learn/Full UI-mode toggle (control bar): scoped past .controls button
          so these declarations actually win; same register as .lang-btn. */
       .controls .mode-btn {
@@ -813,6 +830,89 @@
         background: rgba(255, 94, 94, 0.92);
         border-radius: 3px;
         padding: 6px 10px;
+      }
+
+      /* --- present mode: distraction-free fullscreen (present.ts / chrome.ts) ---
+         body.present hides header/timeline/controls/event-log outright; zone
+         pills, the caption and the STW banner are part of "the world" and stay. */
+      body.present .chrome-header,
+      body.present .timeline,
+      body.present .controls,
+      body.present .event-log {
+        display: none;
+      }
+
+      /* Legend becomes a bottom overlay showing only the assumptions summary
+         line — same "always-visible" honesty rule as mode-learn, just relocated. */
+      .chrome-legend.present-mode {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 8;
+        background: rgba(11, 12, 19, 0.86);
+        border-top: 1px solid var(--line);
+        transition: opacity 0.2s;
+      }
+      .chrome-legend.present-mode.present-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .chrome-legend.present-mode .leg-item,
+      .chrome-legend.present-mode .leg-hint,
+      .chrome-legend.present-mode .assume-body {
+        display: none;
+      }
+
+      /* The wand: a small auto-hiding control bar (play/pause, seek, time, ✕). */
+      .present-wand {
+        position: fixed;
+        left: 50%;
+        bottom: 40px;
+        transform: translateX(-50%);
+        z-index: 9;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px;
+        background: rgba(19, 21, 31, 0.92);
+        border: 1px solid var(--line2);
+        border-radius: 20px;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+        transition: opacity 0.2s;
+      }
+      .present-wand.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .present-wand button {
+        font-family: var(--mn);
+        font-size: 13px;
+        color: var(--tx-hi);
+        background: var(--bg2);
+        border: 1px solid var(--line2);
+        border-radius: 3px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .present-wand button:hover {
+        background: #232842;
+      }
+      .present-wand .present-close {
+        color: var(--tx-dim);
+      }
+      .present-wand .present-seek {
+        width: 220px;
+        accent-color: var(--teal);
+        cursor: pointer;
+      }
+      .present-wand .present-time {
+        font-family: var(--mn);
+        font-size: 12px;
+        color: var(--tx-dim);
+        min-width: 110px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
       }
     </style>
   </head>

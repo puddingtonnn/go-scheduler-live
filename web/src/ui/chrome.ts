@@ -44,6 +44,7 @@ function fmtNs(ns: number): string {
 export class Chrome {
   readonly header: HTMLElement
   readonly legend: HTMLElement
+  readonly presentBtn: HTMLButtonElement
 
   private scene: Scene | null = null
   private numProcs = 4
@@ -104,8 +105,15 @@ export class Chrome {
     heap.title = S.chrome.heapTip
     heap.append(el('span', 'heap-cap', S.chrome.heapCap), heapBar, this.heapPctEl)
 
+    // present-mode toggle: a distraction-free fullscreen view, wired up in
+    // present.ts (main.ts calls presentBtn.addEventListener there, since Chrome's
+    // constructor takes no callbacks — see the langBtn precedent above, which
+    // instead handles its own click inline because it has no external state).
+    this.presentBtn = el('button', 'present-btn', '⛶')
+    this.presentBtn.title = S.present.enterTip
+
     const topRow = el('div', 'chrome-head')
-    topRow.append(titleWrap, el('div', 'spacer'), gc, heap, langBtn)
+    topRow.append(titleWrap, el('div', 'spacer'), gc, heap, langBtn, this.presentBtn)
 
     // The to-scale GC channel (mark bands + STW ticks + playhead) now lives in the
     // unified control-panel timeline (ui/timeline.ts); the header keeps only the GC
@@ -206,6 +214,14 @@ export class Chrome {
   // the hiding to .leg-item/.leg-hint under .chrome-legend.mode-learn).
   setMode(mode: 'learn' | 'full'): void {
     this.legend.classList.toggle('mode-learn', mode === 'learn')
+  }
+
+  // setPresent turns the legend into the present-mode bottom overlay (just the
+  // assumptions summary line). Header/timeline/controls/event-log hiding is
+  // handled entirely by body.present CSS descendant selectors (index.html) —
+  // this method only owns the legend-specific "become an overlay" behavior.
+  setPresent(on: boolean): void {
+    this.legend.classList.toggle('present-mode', on)
   }
 
   // setTimeline wires the per-run trace: builds the GC summary (for the cycle

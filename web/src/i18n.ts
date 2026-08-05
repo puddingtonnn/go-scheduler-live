@@ -174,6 +174,11 @@ const RU = {
     lessTip: 'скрыть журнал событий и легенду',
   },
 
+  present: {
+    enterTip: 'Режим презентации (F)',
+    exitTip: 'Выйти из режима презентации (Esc)',
+  },
+
   intro: {
     defaultTitle: 'Планировщик Go',
     gotIt: 'Понятно',
@@ -434,6 +439,11 @@ const EN: Strings = {
     less: 'Less',
     moreTip: 'show the event log and legend',
     lessTip: 'hide the event log and legend',
+  },
+
+  present: {
+    enterTip: 'Presentation mode (F)',
+    exitTip: 'Exit presentation mode (Esc)',
   },
 
   intro: {
