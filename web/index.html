@@ -838,8 +838,19 @@
       body.present .chrome-header,
       body.present .timeline,
       body.present .controls,
-      body.present .event-log {
+      body.present .event-log,
+      body.present .upload-panel {
         display: none;
+      }
+
+      /* In present mode the legend becomes a fixed bottom overlay (below) that
+         leaves flex flow, so the stage grows to fill the viewport and the
+         caption's normal bottom:10px would land inside the overlay's
+         footprint. Push the caption up above it — the overlay's rendered
+         height is ~39px (10px+10px legend padding + ~18px assumptions
+         summary line + 1px border), so 52px clears it with room to spare. */
+      body.present .caption {
+        bottom: 52px;
       }
 
       /* Legend becomes a bottom overlay showing only the assumptions summary
@@ -884,6 +895,7 @@
       .present-wand.hidden {
         opacity: 0;
         pointer-events: none;
+        visibility: hidden;
       }
       .present-wand button {
         font-family: var(--mn);

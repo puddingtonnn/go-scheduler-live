@@ -222,6 +222,8 @@ export class Chrome {
   // this method only owns the legend-specific "become an overlay" behavior.
   setPresent(on: boolean): void {
     this.legend.classList.toggle('present-mode', on)
+    const S = tr().present
+    this.presentBtn.title = on ? S.exitTip : S.enterTip
   }
 
   // setTimeline wires the per-run trace: builds the GC summary (for the cycle

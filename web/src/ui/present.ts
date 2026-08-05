@@ -23,8 +23,12 @@ export interface PresentModeHandle {
   exit(): void
 }
 
-export function createPresentMode(opts: { chrome: Chrome; playerRef: () => Player | null }): PresentModeHandle {
-  const { chrome, playerRef } = opts
+export function createPresentMode(opts: {
+  chrome: Chrome
+  playerRef: () => Player | null
+  onPlayerToggle?: () => void
+}): PresentModeHandle {
+  const { chrome, playerRef, onPlayerToggle } = opts
 
   let active = false
   let hideTimer: ReturnType<typeof setTimeout> | null = null
@@ -39,6 +43,10 @@ export function createPresentMode(opts: { chrome: Chrome; playerRef: () => Playe
   playBtn.className = 'present-play'
   playBtn.addEventListener('click', () => {
     playerRef()?.toggle()
+    // Player.pause() doesn't emit a tick, so Controls.sync() never runs on its
+    // own — let the caller (main.ts) keep the main control bar's play/pause
+    // label in sync, mirroring the Space-key handler's own workaround.
+    onPlayerToggle?.()
     syncWand()
   })
 

@@ -126,7 +126,11 @@ async function boot(): Promise<void> {
   // exited via F/Escape/the wand's close button/the browser's own fullscreen
   // exit. player is a mutable `let` reassigned per run (see applyTimeline
   // below), so present.ts reads it through this closure rather than by value.
-  const present = createPresentMode({ chrome, playerRef: () => player })
+  const present = createPresentMode({
+    chrome,
+    playerRef: () => player,
+    onPlayerToggle: () => controls.sync(),
+  })
   chrome.presentBtn.addEventListener('click', () => present.toggle())
 
   const intro = makeIntro(stage)
