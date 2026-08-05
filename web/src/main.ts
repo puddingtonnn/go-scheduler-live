@@ -7,9 +7,16 @@ import { Controls } from './controls'
 import { parseShare, buildShare } from './share'
 import { EventLog } from './ui/eventlog'
 import { TimelineBar } from './ui/timeline'
+import { createUploadPanel, traceFacts } from './ui/uploadtrace'
 import { midAliases } from './scene/layout'
 import { t, getLang, scenarioTitle, scenarioDesc } from './i18n'
 import { subscribe as subscribeUiMode, getState as getUiModeState, type UiState } from './ui/uimode'
+
+// A run either replays a curated scenario (fetched via fetchRun, share-able,
+// remembered as lastRun for re-runs) or replays a trace the visitor uploaded
+// (fetched via postTrace inside the upload panel, not share-able). Both
+// converge on the same scene/chrome/player wiring in applyTimeline below.
+type TimelineSource = { kind: 'scenario'; params: RunParams } | { kind: 'custom'; fileName: string }
 
 // Composition root: builds the DOM chrome (header + GC strip + legend) around the
 // canvas stage and the control bar, then on each run fetches a Timeline,
@@ -63,8 +70,27 @@ async function boot(): Promise<void> {
     (p) => void run(p),
     () => scene?.toggleIds() ?? false,
     () => scene?.toggleThreads() ?? false,
-    (info) => chrome.setScenario(info),
+    (info) => {
+      chrome.setScenario(info)
+      // Picking a real scenario after a custom upload leaves custom mode —
+      // Controls doesn't know about that transition trigger on its own (see
+      // controls.ts setCustom), so main.ts drives it here.
+      controls.setCustom(false)
+    },
+    () => uploadPanel.show(),
   )
+
+  // "Upload your own trace" panel: shown over the stage in custom mode
+  // (controls.ts onCustom above), hidden again once applyTimeline below has
+  // applied the uploaded Timeline.
+  const uploadPanel = createUploadPanel(stage, {
+    onUploaded: (tl, fileName) => {
+      void applyTimeline(tl, { kind: 'custom', fileName }).catch((e) => {
+        errorBox.textContent = t().boot.runError(msg(e))
+        errorBox.style.display = 'block'
+      })
+    },
+  })
 
   // Learn/Full UI mode: main.ts is the single subscriber, fanning the shared
   // uimode state out to setter methods on Controls/Chrome/EventLog.
@@ -107,6 +133,64 @@ async function boot(): Promise<void> {
     history.replaceState(null, '', `${location.pathname}?${qs}`)
   }
 
+  // applyTimeline is the reusable core shared by a scenario run and a custom
+  // upload: (re)configure the scene + chrome from a freshly-fetched Timeline,
+  // then drive it from a fresh virtual-clock Player. Everything specific to
+  // where the Timeline came from (share-URL bookkeeping vs. custom title/
+  // assumptions) branches on `source`.
+  async function applyTimeline(tl: Timeline, source: TimelineSource): Promise<void> {
+    timeline = tl
+    if (source.kind === 'scenario') {
+      lastRun = source.params
+      updateShareUrl()
+    } else {
+      lastRun = null
+      lastUrl = ''
+      history.replaceState(null, '', location.pathname)
+    }
+    player?.pause()
+    if (!scene) {
+      scene = await Scene.create(stage, tl.meta.numProcs)
+      scene.onLayout = () => chrome.layout()
+      chrome.attachScene(scene)
+    } else {
+      scene.reset(tl.meta.numProcs)
+    }
+    scene.loadTimeline(tl)
+    chrome.setProcs(tl.meta.numProcs)
+    chrome.setTimeline(tl)
+    timelineBar.setTimeline(tl)
+    eventLog.build(tl.events, midAliases(tl.events))
+    if (source.kind === 'scenario') {
+      chrome.setScenario(scenarioInfo(source.params.scenario))
+      intro.show(scenarioInfo(source.params.scenario))
+    } else {
+      chrome.setScenario(undefined)
+      chrome.setCustomTitle(source.fileName, traceFacts(tl))
+      chrome.addCustomAssumptionGroup()
+      intro.show(undefined)
+      controls.setCustom(true)
+      uploadPanel.hide()
+    }
+
+    const sc = scene
+    const p = new Player(tl)
+    p.onTick = (w) => {
+      sc.setWorld(w)
+      chrome.update(w)
+      timelineBar.render(w.t)
+      eventLog.setT(w.t)
+      controls.sync()
+      // Paused emits are discrete (seek/step/pause) — safe to mirror into the
+      // URL; while playing the URL keeps the run params without t.
+      if (!p.playing) updateShareUrl(w.t)
+    }
+    player = p
+    controls.bindPlayer(p)
+    p.emit()
+    p.play()
+  }
+
   // Scenario picks auto-run (see controls.ts), so runs can overlap while a fetch
   // is in flight; the generation counter lets only the latest one win.
   let runGen = 0
@@ -117,41 +201,7 @@ async function boot(): Promise<void> {
     try {
       const tl = await fetchRun(params)
       if (gen !== runGen) return // superseded by a newer run while fetching
-      timeline = tl
-      lastRun = params
-      updateShareUrl()
-      player?.pause()
-      if (!scene) {
-        scene = await Scene.create(stage, tl.meta.numProcs)
-        scene.onLayout = () => chrome.layout()
-        chrome.attachScene(scene)
-      } else {
-        scene.reset(tl.meta.numProcs)
-      }
-      scene.loadTimeline(tl)
-      chrome.setProcs(tl.meta.numProcs)
-      chrome.setTimeline(tl)
-      timelineBar.setTimeline(tl)
-      eventLog.build(tl.events, midAliases(tl.events))
-      chrome.setScenario(scenarioInfo(params.scenario))
-      intro.show(scenarioInfo(params.scenario))
-
-      const sc = scene
-      const p = new Player(tl)
-      p.onTick = (w) => {
-        sc.setWorld(w)
-        chrome.update(w)
-        timelineBar.render(w.t)
-        eventLog.setT(w.t)
-        controls.sync()
-        // Paused emits are discrete (seek/step/pause) — safe to mirror into the
-        // URL; while playing the URL keeps the run params without t.
-        if (!p.playing) updateShareUrl(w.t)
-      }
-      player = p
-      controls.bindPlayer(p)
-      p.emit()
-      p.play()
+      await applyTimeline(tl, { kind: 'scenario', params })
     } catch (e) {
       if (gen !== runGen) return
       errorBox.textContent = t().boot.runError(msg(e))

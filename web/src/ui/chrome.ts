@@ -66,6 +66,8 @@ export class Chrome {
   private readonly pills: Record<ZoneKey, HTMLDivElement>
   private readonly over: Record<ZoneKey, HTMLSpanElement>
   private anchors: Record<ZoneKey, Pt>
+  private readonly assumeBody: HTMLDivElement
+  private customGroupAdded = false
 
   private last = { gc: '', heap: -1, wait: '', cap: '', readout: '', over: '' }
 
@@ -124,7 +126,9 @@ export class Chrome {
       this.legend.append(item)
     }
     this.legend.append(el('span', 'leg-hint', S.legendHint))
-    this.legend.append(buildAssumptions())
+    const { details: assumptionsBox, body: assumeBody } = buildAssumptions()
+    this.assumeBody = assumeBody
+    this.legend.append(assumptionsBox)
 
     // --- zone pills ---
     const over: Partial<Record<ZoneKey, HTMLSpanElement>> = {}
@@ -173,8 +177,32 @@ export class Chrome {
   }
 
   // setScenario shows the "what this teaches" subtitle for the active scenario.
+  // Pass undefined for an uploaded trace (see setCustomTitle below).
   setScenario(info: ScenarioInfo | undefined): void {
     this.subtitle.textContent = info ? scenarioDesc(info) : ''
+  }
+
+  // setCustomTitle replaces the subtitle with the uploaded file's name plus the
+  // handful of real facts about it (duration/events/P/G counts) instead of a
+  // scenario's "what this teaches" blurb.
+  setCustomTitle(fileName: string, facts: { durationNs: number; events: number; numProcs: number; numGoroutines: number }): void {
+    const u = tr().chrome
+    this.subtitle.textContent = `${fileName} — ${fmtNs(facts.durationNs)}, ${u.customFacts(facts.events, facts.numProcs, facts.numGoroutines)}`
+  }
+
+  // addCustomAssumptionGroup adds the "your trace" disclosure group to the
+  // assumptions panel the first time a custom trace is loaded (idempotent —
+  // uploading a second file doesn't duplicate it).
+  addCustomAssumptionGroup(): void {
+    if (this.customGroupAdded) return
+    this.customGroupAdded = true
+    const S = tr().custom
+    const g = el('div', 'assume-group')
+    g.append(el('b', undefined, S.assumeTitle))
+    const ul = document.createElement('ul')
+    for (const item of S.assumeItems) ul.append(el('li', undefined, item))
+    g.append(ul)
+    this.assumeBody.append(g)
   }
 
   // setMode hides the legend items + hint in Learn mode (the assumptions
@@ -329,7 +357,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 // trace fact. The trace records only goroutine state transitions, so queue
 // membership, steals and M lifecycle are simply not in the data; this panel is
 // where the site says so out loud instead of hiding it in tooltips.
-function buildAssumptions(): HTMLDetailsElement {
+function buildAssumptions(): { details: HTMLDetailsElement; body: HTMLDivElement } {
   const A = tr().assumptions
   const box = document.createElement('details')
   box.className = 'assumptions'
@@ -351,5 +379,5 @@ function buildAssumptions(): HTMLDetailsElement {
   }
   body.append(el('div', 'assume-real', A.real))
   box.append(body)
-  return box
+  return { details: box, body }
 }

@@ -45,6 +45,8 @@ const RU = {
     readout: (cycles: number, maxStw: string) => `${cycles} цикл. · STW до ${maxStw}`,
     readoutNone: 'циклов нет',
     banner: (dur: string) => `Stop-the-world: мир замер на ${dur}`,
+    customFacts: (events: number, numProcs: number, numGoroutines: number) =>
+      `${events} событий, ${numProcs} P, ${numGoroutines} G`,
     langBtn: 'EN',
     langTip: 'Switch the interface to English',
   },
@@ -262,6 +264,33 @@ const RU = {
     boundTo: (pid: number) => ` · привязан к P${pid}`,
     carries: (gid: number) => ` · несёт G${gid}`,
   },
+
+  custom: {
+    chip: 'Мой трейс',
+    panelTitle: 'Загрузить свой трейс',
+    step1: '1. Запишите трейс в своей Go-программе:',
+    step2: '2. Остановите запись, как только собрали интересный момент — трейсы быстро становятся большими.',
+    step3: '3. Выберите файл .trace ниже или перетащите его сюда.',
+    choose: 'Выбрать файл',
+    copy: 'Копировать',
+    copied: 'Скопировано',
+    uploading: 'Загрузка…',
+    needsServer: 'Загрузка трейса требует локального бэкенда — см. README.',
+    error: {
+      tooBig: 'Файл больше 16 МБ — это лимит демки.',
+      unreadable: 'Не похоже на трейс Go: файл не читается как runtime/trace.',
+      tooDense: 'Трейс слишком плотный: больше 200 000 событий — демка не потянет.',
+      tooManyProcs: (n: number) => `Трейс использует ${n} P, эта демка поддерживает до 8.`,
+      notATrace: 'В трейсе нет активности ни одного P — нечего показывать.',
+      generic: (status: number) => `Не удалось загрузить трейс: HTTP ${status}.`,
+    },
+    assumeTitle: 'Мой трейс — что здесь условно',
+    assumeItems: [
+      'данные настоящие, но что в них — отвечает файл',
+      'GOMAXPROCS в трейсе не записан: число P — это сколько P реально появилось',
+      'не кэшируется, share-ссылки нет',
+    ],
+  },
 }
 
 export type Strings = typeof RU
@@ -279,6 +308,7 @@ const EN: Strings = {
     readout: (cycles: number, maxStw: string) => `${cycles} cycles · STW up to ${maxStw}`,
     readoutNone: 'no cycles',
     banner: (dur: string) => `Stop-the-world: the world froze for ${dur}`,
+    customFacts: (events: number, numProcs: number, numGoroutines: number) => `${events} events, ${numProcs} P, ${numGoroutines} G`,
     langBtn: 'RU',
     langTip: 'Переключить интерфейс на русский',
   },
@@ -495,6 +525,33 @@ const EN: Strings = {
     inSyscallWith: (gid: number) => ` · in syscall with G${gid}`,
     boundTo: (pid: number) => ` · bound to P${pid}`,
     carries: (gid: number) => ` · carries G${gid}`,
+  },
+
+  custom: {
+    chip: 'My trace',
+    panelTitle: 'Upload your own trace',
+    step1: '1. Record a trace in your Go program:',
+    step2: '2. Stop it once you have captured the moment you want — traces get large fast.',
+    step3: '3. Choose a .trace file below, or drag it onto the stage.',
+    choose: 'Choose file',
+    copy: 'Copy',
+    copied: 'Copied',
+    uploading: 'Uploading…',
+    needsServer: 'Uploading a trace needs the local backend — see the README.',
+    error: {
+      tooBig: 'File is over 16 MB — that is this demo\'s limit.',
+      unreadable: 'Does not look like a Go trace: the file could not be read as a runtime/trace.',
+      tooDense: 'Trace is too dense: more than 200,000 events — this demo cannot handle it.',
+      tooManyProcs: (n: number) => `The trace uses ${n} Ps; this demo supports up to 8.`,
+      notATrace: 'The trace has no P activity — nothing to show.',
+      generic: (status: number) => `Failed to load the trace: HTTP ${status}.`,
+    },
+    assumeTitle: 'Your trace — what is conventional here',
+    assumeItems: [
+      'the data is real, but what is in it is on the file',
+      'GOMAXPROCS is not recorded in the trace: the P count is however many P actually showed up',
+      'not cached, no share links',
+    ],
   },
 }
 

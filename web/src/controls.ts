@@ -26,6 +26,9 @@ export class Controls {
   private readonly runBtn: HTMLButtonElement
   private readonly advanced: HTMLElement
   private readonly modeBtn: HTMLButtonElement
+  private customChip: HTMLButtonElement | null = null
+  private uiMode: UiMode = 'learn'
+  private customActive = false
 
   constructor(
     container: HTMLElement,
@@ -34,6 +37,7 @@ export class Controls {
     private readonly onToggleIds?: () => boolean,
     private readonly onToggleThreads?: () => boolean,
     private readonly onScenarioChange?: (info: ScenarioInfo) => void,
+    private readonly onCustom?: () => void,
   ) {
     const S = t()
     const bar = document.createElement('div')
@@ -156,6 +160,15 @@ export class Controls {
       this.scenarioChips.push(chip)
       scenChips.append(chip)
     }
+    // "Upload your own trace" is a separate mode, not a scenario — it needs a
+    // real backend (POST /api/trace), so the static demo build gets no chip.
+    if (!isStaticDemo()) {
+      const customChip = button(S.custom.chip, () => this.onCustom?.())
+      customChip.className = 'chip'
+      customChip.dataset.id = 'custom'
+      scenChips.append(customChip)
+      this.customChip = customChip
+    }
 
     // GOMAXPROCS: a ± stepper over a visually-hidden native number input (kept as
     // the FIRST .controls input[type=number] the harness reads).
@@ -253,8 +266,33 @@ export class Controls {
   // stepper, goroutines input) for Learn vs Full UI mode. Driven by main.ts's
   // single uimode subscription, not by Controls itself.
   setMode(mode: UiMode): void {
-    this.advanced.style.display = mode === 'learn' ? 'none' : ''
+    this.uiMode = mode
+    this.syncAdvancedVisibility()
     this.syncModeBtn(mode)
+  }
+
+  // setCustom switches the bar into/out of "upload your own trace" mode: the
+  // advanced controls and the run button don't apply to an uploaded trace (its
+  // GOMAXPROCS/goroutines are whatever the file recorded, and there's nothing
+  // to (re-)run), so both hide; the custom chip highlights instead of a
+  // scenario chip. main.ts calls setCustom(false) again once the user picks a
+  // real scenario.
+  setCustom(on: boolean): void {
+    this.customActive = on
+    this.syncAdvancedVisibility()
+    this.runBtn.style.display = on ? 'none' : ''
+    this.customChip?.classList.toggle('active', on)
+    if (on) {
+      // syncScenarioChips only compares against scenarioSel.value, which never
+      // equals 'custom', so it won't clear these chips on its own.
+      for (const c of this.scenarioChips) c.classList.remove('active')
+    } else {
+      this.syncScenarioChips()
+    }
+  }
+
+  private syncAdvancedVisibility(): void {
+    this.advanced.style.display = this.uiMode === 'learn' || this.customActive ? 'none' : ''
   }
 
   private syncModeBtn(mode: UiMode): void {

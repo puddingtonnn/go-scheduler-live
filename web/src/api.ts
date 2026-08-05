@@ -85,3 +85,32 @@ export async function fetchRun(p: RunParams): Promise<Timeline> {
   if (!r.ok) throw new Error(`run: HTTP ${r.status}`)
   return r.json() as Promise<Timeline>
 }
+
+// TraceUploadError carries the wire-contract `code` (and `n` for too_many_procs)
+// plus the HTTP status, so callers can map it through i18n (uploadErrorMessage
+// in ui/uploadtrace.ts) rather than just displaying the raw server text. Status
+// is kept alongside code (not in the brief's minimal sketch) so an unrecognized
+// future code still has something to key a fallback message on.
+export class TraceUploadError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status: number,
+    readonly n?: number,
+  ) {
+    super(message)
+  }
+}
+
+// postTrace uploads a raw .trace file body to POST /api/trace (not multipart —
+// File implements BodyInit) and returns the parsed Timeline. On failure the
+// backend responds with a structured {error, code, n?} body.
+export async function postTrace(file: File): Promise<Timeline> {
+  if (STATIC) throw new Error(t().custom.needsServer)
+  const r = await fetch('/api/trace', { method: 'POST', body: file })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: 'unreadable' }))
+    throw new TraceUploadError(body.error ?? `HTTP ${r.status}`, body.code ?? 'unreadable', r.status, body.n)
+  }
+  return r.json() as Promise<Timeline>
+}
