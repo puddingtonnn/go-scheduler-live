@@ -44,6 +44,46 @@ func TestBuildSkipsStealWhenProcUnknown(t *testing.T) {
 	}
 }
 
+func TestObservedProcs(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []Event
+		want   int
+	}{
+		{
+			name: "normal case, several PIDs",
+			events: []Event{
+				{PID: 0}, {PID: 2}, {PID: 1}, {PID: 2},
+			},
+			want: 3,
+		},
+		{
+			name:   "empty slice",
+			events: nil,
+			want:   0,
+		},
+		{
+			name: "all NoResource",
+			events: []Event{
+				{PID: NoResource}, {PID: NoResource},
+			},
+			want: 0,
+		},
+		{
+			name:   "single event with PID 0",
+			events: []Event{{PID: 0}},
+			want:   1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ObservedProcs(tt.events); got != tt.want {
+				t.Errorf("ObservedProcs() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildMeta(t *testing.T) {
 	// Deliberately out of time order to check Build sorts.
 	events := []Event{

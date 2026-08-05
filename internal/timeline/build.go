@@ -40,6 +40,29 @@ func Build(events []Event, gomaxprocs int, scenario string) Timeline {
 	}
 }
 
+// ObservedProcs returns 1 + the highest P id that appears in the events, i.e.
+// the number of Ps the traced program actually used. The trace does not record
+// GOMAXPROCS, so this is a lower bound, not the flag value.
+func ObservedProcs(events []Event) int {
+	var (
+		maxPID int64 = -1
+		found  bool
+	)
+	for _, e := range events {
+		if e.PID == NoResource {
+			continue
+		}
+		if !found || e.PID > maxPID {
+			maxPID = e.PID
+			found = true
+		}
+	}
+	if !found {
+		return 0
+	}
+	return int(maxPID) + 1
+}
+
 // reconstructSteals sets Stolen on g_run_start events whose goroutine last
 // became runnable on a different P than the one it now runs on.
 //

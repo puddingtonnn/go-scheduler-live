@@ -50,6 +50,7 @@ func New(run TraceRunner) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/scenarios", s.handleScenarios)
 	mux.HandleFunc("GET /api/run", s.handleRun)
+	mux.HandleFunc("POST /api/trace", s.handleTraceUpload)
 	return mux
 }
 
