@@ -74,17 +74,35 @@ async function boot(): Promise<void> {
       chrome.setScenario(info)
       // Picking a real scenario after a custom upload leaves custom mode —
       // Controls doesn't know about that transition trigger on its own (see
-      // controls.ts setCustom), so main.ts drives it here.
+      // controls.ts setCustom), so main.ts drives it here. The upload panel
+      // itself may still be open (e.g. the user switched scenarios mid
+      // upload); hide it too so it doesn't linger over the new run.
       controls.setCustom(false)
+      uploadPanel.hide()
     },
     () => uploadPanel.show(),
   )
 
   // "Upload your own trace" panel: shown over the stage in custom mode
   // (controls.ts onCustom above), hidden again once applyTimeline below has
-  // applied the uploaded Timeline.
+  // applied the uploaded Timeline (or once the user switches scenarios, see
+  // onScenarioChange above). uploadGen captures the shared runGen (declared
+  // below, near run()) at the moment THIS upload started, so a stale upload
+  // that resolves after something newer took over (another upload, or a
+  // scenario run) is detected and dropped instead of clobbering it.
+  let uploadGen = 0
   const uploadPanel = createUploadPanel(stage, {
+    onUploadStart: () => {
+      uploadGen = beginRun()
+      // A newer upload supersedes any in-flight scenario fetch. That stale
+      // fetch's own run() will see isCurrentRun() go false and skip applying
+      // — but nothing would ever call controls.setLoading(false) for it
+      // (only a future run() call does), leaving the Run button stuck on
+      // "Running…" forever. Clear it proactively here instead of waiting.
+      controls.setLoading(false)
+    },
     onUploaded: (tl, fileName) => {
+      if (!isCurrentRun(uploadGen)) return // superseded while the upload was in flight
       void applyTimeline(tl, { kind: 'custom', fileName }).catch((e) => {
         errorBox.textContent = t().boot.runError(msg(e))
         errorBox.style.display = 'block'
@@ -145,6 +163,13 @@ async function boot(): Promise<void> {
       updateShareUrl()
     } else {
       lastRun = null
+      // Not dead: updateShareUrl only early-returns on !lastRun, which covers
+      // calls made WHILE lastRun is null (e.g. onTick during custom
+      // playback), but NOT the next scenario run's updateShareUrl() call once
+      // lastRun is set again. Without resetting lastUrl here, that next call
+      // could compute the same qs as before this custom trace was loaded and
+      // skip replaceState — leaving the address bar stripped of the scenario
+      // query string this replaceState below just removed.
       lastUrl = ''
       history.replaceState(null, '', location.pathname)
     }
@@ -191,24 +216,37 @@ async function boot(): Promise<void> {
     p.play()
   }
 
-  // Scenario picks auto-run (see controls.ts), so runs can overlap while a fetch
-  // is in flight; the generation counter lets only the latest one win.
+  // Scenario picks auto-run (see controls.ts) and a custom upload can be
+  // dropped in at any time, so a scenario fetch and an upload can be in flight
+  // together; this ONE shared counter is how either path tells "am I still
+  // the most recent thing the user asked for" before it's allowed to call
+  // applyTimeline. Both run() (below) and the upload wiring (above,
+  // onUploadStart/onUploaded) bump/check the same counter — a separate
+  // counter per path would not prevent one path's stale result from
+  // clobbering the other's fresh one.
   let runGen = 0
+  function beginRun(): number {
+    return ++runGen
+  }
+  function isCurrentRun(gen: number): boolean {
+    return gen === runGen
+  }
+
   async function run(params: RunParams): Promise<void> {
-    const gen = ++runGen
+    const gen = beginRun()
     controls.setLoading(true)
     errorBox.style.display = 'none'
     try {
       const tl = await fetchRun(params)
-      if (gen !== runGen) return // superseded by a newer run while fetching
+      if (!isCurrentRun(gen)) return // superseded by a newer run/upload while fetching
       await applyTimeline(tl, { kind: 'scenario', params })
     } catch (e) {
-      if (gen !== runGen) return
+      if (!isCurrentRun(gen)) return
       errorBox.textContent = t().boot.runError(msg(e))
       errorBox.style.display = 'block'
     } finally {
-      // A superseded run must not clear the loading state the newer run set.
-      if (gen === runGen) controls.setLoading(false)
+      // A superseded run must not clear the loading state the newer one set.
+      if (isCurrentRun(gen)) controls.setLoading(false)
     }
   }
 

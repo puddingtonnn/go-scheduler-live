@@ -69,7 +69,18 @@ export interface UploadPanel {
 // createUploadPanel builds the instruction + upload panel and mounts it into
 // `container` (the stage). It stays in the DOM (hidden) between show()/hide()
 // calls so listeners aren't rebuilt on every toggle.
-export function createUploadPanel(container: HTMLElement, opts: { onUploaded: (tl: Timeline, fileName: string) => void }): UploadPanel {
+export function createUploadPanel(
+  container: HTMLElement,
+  opts: {
+    // Called synchronously right before postTrace fires, so the caller can
+    // stamp a supersession token BEFORE the async work starts — the same
+    // pattern main.ts's run() uses for scenario fetches, sharing one counter
+    // so a scenario run and an upload in flight at the same time can't stomp
+    // each other's result (whichever resolves last used to win outright).
+    onUploadStart: () => void
+    onUploaded: (tl: Timeline, fileName: string) => void
+  },
+): UploadPanel {
   const S = t().custom
 
   const panel = el('div', 'upload-panel')
@@ -152,6 +163,7 @@ export function createUploadPanel(container: HTMLElement, opts: { onUploaded: (t
   async function handleFile(file: File): Promise<void> {
     clearError()
     setUploading(true)
+    opts.onUploadStart()
     try {
       const tl = await postTrace(file)
       setUploading(false)

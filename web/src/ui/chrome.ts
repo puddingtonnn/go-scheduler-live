@@ -197,11 +197,7 @@ export class Chrome {
     if (this.customGroupAdded) return
     this.customGroupAdded = true
     const S = tr().custom
-    const g = el('div', 'assume-group')
-    g.append(el('b', undefined, S.assumeTitle))
-    const ul = document.createElement('ul')
-    for (const item of S.assumeItems) ul.append(el('li', undefined, item))
-    g.append(ul)
+    const g = renderAssumeGroup(S.assumeTitle, S.assumeItems)
     this.assumeBody.append(g)
   }
 
@@ -351,6 +347,18 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e
 }
 
+// renderAssumeGroup builds one titled bullet-list group for the assumptions
+// panel — shared by the static groups built at construction (buildAssumptions)
+// and the "your trace" group appended later (addCustomAssumptionGroup).
+function renderAssumeGroup(gtitle: string, items: readonly string[]): HTMLDivElement {
+  const g = el('div', 'assume-group')
+  g.append(el('b', undefined, gtitle))
+  const ul = document.createElement('ul')
+  for (const it of items) ul.append(el('li', undefined, it))
+  g.append(ul)
+  return g
+}
+
 // buildAssumptions renders the honesty disclosure under the legend: an
 // always-visible summary line that expands into the full list of what this world
 // reconstructs, compresses or omits versus the real runtime — and what is a hard
@@ -369,14 +377,7 @@ function buildAssumptions(): { details: HTMLDetailsElement; body: HTMLDivElement
   // The static build has no backend, which changes what the controls can mean.
   // That belongs in the honesty panel rather than only in a tooltip.
   if (isStaticDemo()) groups.unshift([tr().demo.group, tr().demo.items])
-  for (const [gtitle, items] of groups) {
-    const g = el('div', 'assume-group')
-    g.append(el('b', undefined, gtitle))
-    const ul = document.createElement('ul')
-    for (const it of items) ul.append(el('li', undefined, it))
-    g.append(ul)
-    body.append(g)
-  }
+  for (const [gtitle, items] of groups) body.append(renderAssumeGroup(gtitle, items))
   body.append(el('div', 'assume-real', A.real))
   box.append(body)
   return { details: box, body }
