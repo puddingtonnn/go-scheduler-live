@@ -109,8 +109,12 @@ export async function postTrace(file: File): Promise<Timeline> {
   if (STATIC) throw new Error(t().custom.needsServer)
   const r = await fetch('/api/trace', { method: 'POST', body: file })
   if (!r.ok) {
-    const body = await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: 'unreadable' }))
-    throw new TraceUploadError(body.error ?? `HTTP ${r.status}`, body.code ?? 'unreadable', r.status, body.n)
+    // A non-JSON body means an infrastructure failure (proxy/server error),
+    // not a bad trace — fall back to an empty code (not one of the five wire
+    // codes) so uploadErrorMessage falls through to its generic, status-keyed
+    // message instead of claiming the file isn't a trace.
+    const body = await r.json().catch(() => ({ error: `HTTP ${r.status}`, code: '' }))
+    throw new TraceUploadError(body.error ?? `HTTP ${r.status}`, body.code ?? '', r.status, body.n)
   }
   return r.json() as Promise<Timeline>
 }

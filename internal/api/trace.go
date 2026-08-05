@@ -13,8 +13,11 @@ import (
 // maxUploadBytes/maxUploadEvents bound an arbitrary uploaded trace: unlike the
 // curated scenarios, we have no control over what a user drags in.
 const (
-	maxUploadBytes  = 16 << 20 // 16 MB — already millions of events
-	maxUploadEvents = 200_000  // sanity bound; see task-4-report.md for the real-run check
+	maxUploadBytes = 16 << 20 // 16 MB — already millions of events
+	// maxUploadEvents is a sanity bound: real workload runs at max stress
+	// (gcpressure, 10s/200 goroutines/8 procs) produce ~30,000 events, well
+	// under this limit.
+	maxUploadEvents = 200_000
 )
 
 var (
